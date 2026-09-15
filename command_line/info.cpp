@@ -21,6 +21,10 @@
 #include "graph/assemblygraph.h"
 #include "program/settings.h"
 
+#ifdef BANDAGE_HAVE_GFAIDX
+#include "graph/indexedgraphsession.h"
+#endif
+
 #include <CLI/CLI.hpp>
 
 CLI::App *addInfoSubcommand(CLI::App &app, InfoCmd &cmd) {
@@ -60,6 +64,23 @@ int handleInfoCmd(QApplication *app,
     QTextStream err(stderr);
 
     QString inputFile = QString::fromStdString(cmd.m_graph.generic_string());
+
+#ifdef BANDAGE_HAVE_GFAIDX
+    if (graph::IndexedGraphSession::isIndexed(inputFile)) {
+        graph::IndexedGraphSession session(inputFile);
+        if (cmd.m_tsv) {
+            out << cmd.m_graph.c_str() << "\t" << session.nodeCount() << "\t"
+                << session.communityCount() << "\t" << session.pathCount() << "\n";
+        } else {
+            out << "Indexed graph - reporting index summary without a full load.\n"
+                << "Node count (index):      " << session.nodeCount() << "\n"
+                << "Community count (index): " << session.communityCount() << "\n"
+                << "Path/walk count (index): " << session.pathCount() << "\n";
+        }
+        return 0;
+    }
+#endif
+
     if (!g_assemblyGraph->loadGraphFromFile(inputFile)) {
         err << "Bandage-NG error: could not load " << inputFile << Qt::endl;
         return 1;

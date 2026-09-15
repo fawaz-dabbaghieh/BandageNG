@@ -27,6 +27,10 @@
 #include "layout/graphlayout.h"
 #include "program/globals.h"
 
+#ifdef BANDAGE_HAVE_GFAIDX
+#include "graph/indexedgraphsession.h"
+#endif
+
 #include <QMainWindow>
 #include <QGraphicsScene>
 #include <QMap>
@@ -35,6 +39,7 @@
 #include <QLineEdit>
 #include <QRectF>
 #include <QThread>
+#include <memory>
 
 Q_MOC_INCLUDE("graph/debruijnnode.h")
 
@@ -74,7 +79,17 @@ private:
 
     bool m_alreadyShown;
 
+#ifdef BANDAGE_HAVE_GFAIDX
+    // The currently open gfaidx index, if the loaded graph came from one.
+    // Kept alive across "Load subgraph" re-queries so re-querying a different
+    // node doesn't require reopening the file.
+    std::unique_ptr<graph::IndexedGraphSession> m_indexedGraphSession;
+    QString m_indexedGraphFileName;
+#endif
+
     void cleanUp();
+    void loadGraphFile(const QString &fullFileName);
+    void finishGraphLoad(const QString &fullFileName, bool customColours, bool customLabels);
     void displayGraphDetails();
     void clearGraphDetails();
     void resetScene();
@@ -145,6 +160,7 @@ private slots:
                        bool recolor = false);
     void selectPathNodes();
     void selectWalkNodes();
+    void requestSubgraph();
 
     void showPathListDialog();
     void showWalkListDialog();

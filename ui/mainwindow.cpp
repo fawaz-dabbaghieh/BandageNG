@@ -32,6 +32,9 @@
 #include "ui/dialogs/graphinfodialog.h"
 #include "ui/dialogs/pathlistdialog.h"
 #include "ui/dialogs/walklistdialog.h"
+#ifdef BANDAGE_HAVE_GFAIDX
+#include "ui/dialogs/indexedgraphdialog.h"
+#endif
 
 #include "graphsearch/blast/blastsearch.h"
 #include "graphsearch/minimap2/minimap2search.h"
@@ -145,6 +148,7 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
     connect(ui->actionLoad_links, SIGNAL(triggered()), this, SLOT(loadGraphLinks()));
     connect(ui->actionExit, SIGNAL(triggered()), this, SLOT(close()));
     connect(ui->graphScopeComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(graphScopeChanged()));
+    connect(ui->subgraphLoadButton, SIGNAL(clicked()), this, SLOT(requestSubgraph()));
     connect(ui->zoomSpinBox, SIGNAL(valueChanged(double)), this, SLOT(zoomSpinBoxChanged()));
     connect(m_graphicsViewZoom, SIGNAL(zoomed()), this, SLOT(zoomedWithMouseWheel()));
     connect(ui->actionCopy_selected_node_sequences_to_clipboard, SIGNAL(triggered()), this, SLOT(copySelectedSequencesToClipboardActionTriggered()));
@@ -345,6 +349,62 @@ void MainWindow::loadGraph(QString fullFileName) {
     if (fullFileName.isEmpty()) //User did hit cancel
         return;
 
+#ifdef BANDAGE_HAVE_GFAIDX
+    if (graph::IndexedGraphSession::isIndexed(fullFileName)) {
+        auto session = std::make_unique<graph::IndexedGraphSession>(fullFileName);
+        QString summary = QString("This graph has a gfaidx index, so it can be queried "
+                                   "without loading it in full.\n\n"
+                                   "Nodes:      %1\n"
+                                   "Communities: %2\n"
+                                   "Paths/walks: %3")
+                                  .arg(session->nodeCount())
+                                  .arg(session->communityCount())
+                                  .arg(session->pathCount());
+
+        IndexedGraphDialog dialog(this, summary);
+        if (dialog.exec() != QDialog::Accepted)
+            return; // user cancelled
+
+        if (dialog.loadFullGraphRequested()) {
+            loadGraphFile(fullFileName);
+            return;
+        }
+
+        resetScene();
+        cleanUp();
+        ui->selectionSearchNodesLineEdit->clear();
+
+        if (auto err = session->loadSubgraphByNodes(*g_assemblyGraph, {dialog.seedNodeId()},
+                                                     dialog.maxNodes())) {
+            QMessageBox::warning(this, "Error loading subgraph",
+                                 "There was an error loading the requested subgraph:\n"
+                                 + QString::fromStdString(llvm::toString(std::move(err))));
+            resetScene();
+            cleanUp();
+            clearGraphDetails();
+            setUiState(NO_GRAPH_LOADED);
+            return;
+        }
+
+        m_indexedGraphSession = std::move(session);
+        m_indexedGraphFileName = fullFileName;
+        finishGraphLoad(fullFileName, false, false);
+        statusBar()->showMessage(
+            QString("Loaded subgraph around node %1").arg(dialog.seedNodeId()), 4000);
+        return;
+    }
+#endif
+
+    loadGraphFile(fullFileName);
+}
+
+void MainWindow::loadGraphFile(const QString &fullFileName) {
+#ifdef BANDAGE_HAVE_GFAIDX
+    // A fresh full load supersedes any previously open indexed session.
+    m_indexedGraphSession.reset();
+    m_indexedGraphFileName.clear();
+#endif
+
     // We need to convert unique_ptr to shared_ptr in order to get builder shared between future and callback
     std::shared_ptr<io::AssemblyGraphBuilder> builder = io::AssemblyGraphBuilder::get(fullFileName);
     if (!builder) {
@@ -390,36 +450,38 @@ void MainWindow::loadGraph(QString fullFileName) {
                                          "perfect, so the behaviour of such edges in this graph "
                                          "is undefined.");
 
-                setUiState(GRAPH_LOADED);
-                setWindowTitle("BandageNG - " + fullFileName);
-
-                g_assemblyGraph->determineGraphInfo();
-                displayGraphDetails();
-                g_memory->rememberedPath = QFileInfo(fullFileName).absolutePath();
-                g_memory->clearGraphSpecificMemory();
-
-                bool customColours = builder->hasCustomColours(),
-                      customLabels = builder->hasCustomLabels();
-
-                // If the graph has custom colours, automatically switch the colour scheme to custom colours.
-                if (customColours)
-                    switchColourScheme(CUSTOM_COLOURS);
-
-                // If the graph doesn't have custom colours, but the colour scheme is on 'Custom', automatically switch it back
-                // to the default of 'Random colours'.
-                if (!customColours && ui->coloursComboBox->currentIndex() == 6)
-                    ui->coloursComboBox->setCurrentIndex(0);
-
-                setupPathSelectionLineEdit(ui->pathSelectionLineEdit);
-                setupPathSelectionLineEdit(ui->pathSelectionLineEdit2);
-                setupWalkSelectionLineEdit(ui->walkSelectionLineEdit);
-                setupWalkSelectionLineEdit(ui->walkSelectionLineEdit2);
+                finishGraphLoad(fullFileName, builder->hasCustomColours(), builder->hasCustomLabels());
     });
     connect(watcher, SIGNAL(finished()), progress, SLOT(deleteLater()));
     connect(watcher, SIGNAL(finished()), watcher, SLOT(deleteLater()));
 
     auto res = QtConcurrent::run(&io::AssemblyGraphBuilder::build, builder, std::ref(*g_assemblyGraph));
     watcher->setFuture(res);
+}
+
+void MainWindow::finishGraphLoad(const QString &fullFileName, bool customColours,
+                                 [[maybe_unused]] bool customLabels) {
+    setUiState(GRAPH_LOADED);
+    setWindowTitle("BandageNG - " + fullFileName);
+
+    g_assemblyGraph->determineGraphInfo();
+    displayGraphDetails();
+    g_memory->rememberedPath = QFileInfo(fullFileName).absolutePath();
+    g_memory->clearGraphSpecificMemory();
+
+    // If the graph has custom colours, automatically switch the colour scheme to custom colours.
+    if (customColours)
+        switchColourScheme(CUSTOM_COLOURS);
+
+    // If the graph doesn't have custom colours, but the colour scheme is on 'Custom', automatically switch it back
+    // to the default of 'Random colours'.
+    if (!customColours && ui->coloursComboBox->currentIndex() == 6)
+        ui->coloursComboBox->setCurrentIndex(0);
+
+    setupPathSelectionLineEdit(ui->pathSelectionLineEdit);
+    setupPathSelectionLineEdit(ui->pathSelectionLineEdit2);
+    setupWalkSelectionLineEdit(ui->walkSelectionLineEdit);
+    setupWalkSelectionLineEdit(ui->walkSelectionLineEdit2);
 }
 
 void MainWindow::loadGraphLayout(QString fullFileName) {
@@ -2353,6 +2415,45 @@ void MainWindow::setGraphScopeComboBox(GraphScope graphScope) {
 
 void MainWindow::nodeDistanceChanged() {
     g_settings->nodeDistance = ui->nodeDistanceSpinBox->value();
+}
+
+void MainWindow::requestSubgraph() {
+    const QString nodeId = ui->subgraphNodeLineEdit->text().simplified();
+    const int size = ui->subgraphSizeSpinBox->value();
+
+    if (nodeId.isEmpty()) {
+        statusBar()->showMessage("Subgraph request: please enter a node ID.", 4000);
+        return;
+    }
+
+#ifdef BANDAGE_HAVE_GFAIDX
+    if (!m_indexedGraphSession) {
+        statusBar()->showMessage(
+            "No indexed graph is open - subgraph queries need a graph loaded via its gfaidx index.", 5000);
+        return;
+    }
+
+    resetScene();
+    cleanUp();
+    ui->selectionSearchNodesLineEdit->clear();
+
+    if (auto err = m_indexedGraphSession->loadSubgraphByNodes(*g_assemblyGraph, {nodeId},
+                                                               static_cast<unsigned>(size))) {
+        QMessageBox::warning(this, "Error loading subgraph",
+                             "There was an error loading the requested subgraph:\n"
+                             + QString::fromStdString(llvm::toString(std::move(err))));
+        resetScene();
+        cleanUp();
+        clearGraphDetails();
+        setUiState(NO_GRAPH_LOADED);
+        return;
+    }
+
+    finishGraphLoad(m_indexedGraphFileName, false, false);
+    statusBar()->showMessage(QString("Loaded subgraph around node %1").arg(nodeId), 4000);
+#else
+    statusBar()->showMessage("This build of BandageNG was built without gfaidx support.", 4000);
+#endif
 }
 
 void MainWindow::depthRangeChanged() {

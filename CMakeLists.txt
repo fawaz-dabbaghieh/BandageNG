@@ -53,6 +53,7 @@ set(LIB_SOURCES
     ui/nodewidthvisualaid.cpp
     ui/dialogs/pathspecifydialog.cpp
     ui/dialogs/querypathsdialog.cpp
+    ui/dialogs/indexedgraphdialog.cpp
     ui/dialogs/settingsdialog.cpp
     ui/widgets/verticallabel.cpp
     ui/widgets/verticalscrollarea.cpp
@@ -109,6 +110,18 @@ add_compile_definitions(APP_VERSION="${PROJECT_VERSION}")
 add_subdirectory(thirdparty)
 include_directories(thirdparty)
 
+# gfaidx: indexed GFA subgraph queries (local sibling checkout during active
+# co-development; EXCLUDE_FROM_ALL keeps its CLI/tests/python bindings out of
+# the default build target).
+set(GFAIDX_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../gfaidx" CACHE PATH "Path to a local gfaidx checkout")
+if (EXISTS "${GFAIDX_SOURCE_DIR}/CMakeLists.txt")
+  add_subdirectory(${GFAIDX_SOURCE_DIR} ${CMAKE_BINARY_DIR}/gfaidx EXCLUDE_FROM_ALL)
+  set(BANDAGE_HAVE_GFAIDX ON)
+else()
+  message(WARNING "gfaidx not found at ${GFAIDX_SOURCE_DIR} - indexed subgraph loading disabled")
+  set(BANDAGE_HAVE_GFAIDX OFF)
+endif()
+
 include(FetchContent)
 # Lexy for GFA parser
 FetchContent_Declare(lexy URL https://lexy.foonathan.net/download/lexy-src.zip)
@@ -145,9 +158,16 @@ target_link_libraries(BandageIo PRIVATE Qt6::Gui Qt6::Widgets Qt6::Network foona
 
 # FIXME: Untagle this
 include_directories(ui)
+if (BANDAGE_HAVE_GFAIDX)
+  list(APPEND LIB_SOURCES graph/indexedgraphsession.cpp)
+endif()
 add_library(BandageLib STATIC ${LIB_SOURCES} ${FORMS} graphsearch/graphsearchers.cpp)
 target_link_libraries(BandageLib PRIVATE BandageLayout BandageIo llvmSupport Qt6::Concurrent Qt6::Widgets Qt6::Svg Qt6::Network ${bandage_zlib})
 target_include_directories(BandageLib INTERFACE ".")
+if (BANDAGE_HAVE_GFAIDX)
+  target_link_libraries(BandageLib PRIVATE gfaidx::gfaidx)
+  target_compile_definitions(BandageLib PUBLIC BANDAGE_HAVE_GFAIDX)
+endif()
 
 target_link_libraries(BandageLib PRIVATE libzstd_static)
 # On windows and macos this is needed
