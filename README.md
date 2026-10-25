@@ -9,6 +9,7 @@
 
 ## Table of Contents
 * [Intro](https://github.com/asl/BandageNG#intro)
+* [Indexed graphs (gfaidx)](#indexed-graphs-gfaidx)
 * [Help](https://github.com/asl/BandageNG#help)
 * [Pre-built binaries](https://github.com/asl/BandageNG#pre-built-binaries)
 * [Building from source](https://github.com/asl/BandageNG#building-from-source)
@@ -23,6 +24,12 @@
 Bandage-NG is a GUI program that allows users to interact with the assembly graphs made by *de novo* assemblers such as <a href="http://cab.spbu.ru/software/spades" target="_blank">SPAdes</a>, <a href="https://github.com/voutcn/megahit" target="_blank">MEGAHIT</a> and others.
 
 *De novo* assembly graphs contain not only assembled contigs but also the connections between those contigs, which were previously not easily accessible. Bandage visualises assembly graphs, with connections, using graph layout algorithms. Nodes in the drawn graph, which represent contigs, can be automatically labelled with their ID, length or depth. Users can interact with the graph by moving, labelling and colouring nodes. Sequence information can also be extracted directly from the graph viewer. By displaying connections between contigs, Bandage opens up new possibilities for analysing and improving *de novo* assemblies that are not possible by looking at contigs alone.
+
+## Indexed graphs (gfaidx)
+
+Bandage-NG can open GFA files indexed with [gfaidx](https://github.com/fawaz-dabbaghieh/gfaidx) without loading the whole graph. When the selected file has gfaidx index files next to it, Bandage-NG lets you query a subgraph: the neighbourhood around one or more nodes, or a region of a path or walk. Only the result is loaded, so large pangenome graphs can be explored without loading them completely. To run another query on the same index, click "Re-query..." in the sidebar. You can also load the full graph from the query window.
+
+gfaidx is downloaded and built automatically with Bandage-NG (not available on Windows).
 
 ## Help
 
