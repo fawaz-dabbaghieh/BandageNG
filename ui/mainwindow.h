@@ -37,8 +37,10 @@
 #include <QString>
 #include <vector>
 #include <QLineEdit>
+#include <QPointer>
 #include <QRectF>
 #include <QThread>
+#include <functional>
 #include <memory>
 
 Q_MOC_INCLUDE("graph/debruijnnode.h")
@@ -48,6 +50,7 @@ class BandageGraphicsScene;
 class DeBruijnNode;
 class DeBruijnEdge;
 class GraphSearchDialog;
+class IndexedGraphDialog;
 namespace search {
     class GraphSearch;
 }
@@ -80,15 +83,20 @@ private:
     bool m_alreadyShown;
 
 #ifdef BANDAGE_HAVE_GFAIDX
-    // The currently open gfaidx index, if the loaded graph came from one.
-    // Kept alive across "Load subgraph" re-queries so re-querying a different
-    // node doesn't require reopening the file.
-    std::unique_ptr<graph::IndexedGraphSession> m_indexedGraphSession;
-    QString m_indexedGraphFileName;
+    // The gfaidx index the loaded graph was queried from, and its query window.
+    std::shared_ptr<graph::IndexedGraphSession> m_indexedGraph;
+    QPointer<IndexedGraphDialog> m_indexQueryDialog;
+
+    void openIndexedGraph(const QString &fullFileName);
+    void showIndexQueryDialog(std::shared_ptr<graph::IndexedGraphSession> session, QPointer<IndexedGraphDialog> dialog);
+    void runIndexQuery(std::shared_ptr<graph::IndexedGraphSession> session, QPointer<IndexedGraphDialog> dialog);
+    void forgetIndexedGraph();
 #endif
 
     void cleanUp();
     void loadGraphFile(const QString &fullFileName);
+    void parseGraphFile(const QString &path, const QString &displayFileName,
+                        const std::function<void()> &onLoaded, const std::function<void()> &onFailed);
     void finishGraphLoad(const QString &fullFileName, bool customColours, bool customLabels);
     void displayGraphDetails();
     void clearGraphDetails();
@@ -160,7 +168,7 @@ private slots:
                        bool recolor = false);
     void selectPathNodes();
     void selectWalkNodes();
-    void requestSubgraph();
+    void requeryIndexedGraph();
 
     void showPathListDialog();
     void showWalkListDialog();

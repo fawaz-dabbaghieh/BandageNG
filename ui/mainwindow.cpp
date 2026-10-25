@@ -78,6 +78,8 @@
 #include <QStringListModel>
 #include <QtConcurrent>
 #include <QFutureWatcher>
+#include <QTimer>
+#include <atomic>
 
 #include <iterator>
 #include <algorithm>
@@ -172,7 +174,13 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
     connect(ui->actionLoad_links, SIGNAL(triggered()), this, SLOT(loadGraphLinks()));
     connect(ui->actionExit, SIGNAL(triggered()), this, SLOT(close()));
     connect(ui->graphScopeComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(graphScopeChanged()));
-    connect(ui->subgraphLoadButton, SIGNAL(clicked()), this, SLOT(requestSubgraph()));
+    connect(ui->indexQueryButton, &QPushButton::clicked, this, &MainWindow::requeryIndexedGraph);
+    ui->indexQueryButton->setEnabled(false);
+#ifndef BANDAGE_HAVE_GFAIDX
+    ui->indexQueryInfoText->hide();
+    ui->indexQueryLabel->hide();
+    ui->indexQueryButton->hide();
+#endif
     connect(ui->zoomSpinBox, SIGNAL(valueChanged(double)), this, SLOT(zoomSpinBoxChanged()));
     connect(m_graphicsViewZoom, SIGNAL(zoomed()), this, SLOT(zoomedWithMouseWheel()));
     connect(ui->actionCopy_selected_node_sequences_to_clipboard, SIGNAL(triggered()), this, SLOT(copySelectedSequencesToClipboardActionTriggered()));
@@ -375,46 +383,7 @@ void MainWindow::loadGraph(QString fullFileName) {
 
 #ifdef BANDAGE_HAVE_GFAIDX
     if (graph::IndexedGraphSession::isIndexed(fullFileName)) {
-        auto session = std::make_unique<graph::IndexedGraphSession>(fullFileName);
-        QString summary = QString("This graph has a gfaidx index, so it can be queried "
-                                   "without loading it in full.\n\n"
-                                   "Nodes:      %1\n"
-                                   "Communities: %2\n"
-                                   "Paths/walks: %3")
-                                  .arg(session->nodeCount())
-                                  .arg(session->communityCount())
-                                  .arg(session->pathCount());
-
-        IndexedGraphDialog dialog(this, summary);
-        if (dialog.exec() != QDialog::Accepted)
-            return; // user cancelled
-
-        if (dialog.loadFullGraphRequested()) {
-            loadGraphFile(fullFileName);
-            return;
-        }
-
-        resetScene();
-        cleanUp();
-        ui->selectionSearchNodesLineEdit->clear();
-
-        if (auto err = session->loadSubgraphByNodes(*g_assemblyGraph, {dialog.seedNodeId()},
-                                                     dialog.maxNodes())) {
-            QMessageBox::warning(this, "Error loading subgraph",
-                                 "There was an error loading the requested subgraph:\n"
-                                 + QString::fromStdString(llvm::toString(std::move(err))));
-            resetScene();
-            cleanUp();
-            clearGraphDetails();
-            setUiState(NO_GRAPH_LOADED);
-            return;
-        }
-
-        m_indexedGraphSession = std::move(session);
-        m_indexedGraphFileName = fullFileName;
-        finishGraphLoad(fullFileName, false, false);
-        statusBar()->showMessage(
-            QString("Loaded subgraph around node %1").arg(dialog.seedNodeId()), 4000);
+        openIndexedGraph(fullFileName);
         return;
     }
 #endif
@@ -424,17 +393,22 @@ void MainWindow::loadGraph(QString fullFileName) {
 
 void MainWindow::loadGraphFile(const QString &fullFileName) {
 #ifdef BANDAGE_HAVE_GFAIDX
-    // A fresh full load supersedes any previously open indexed session.
-    m_indexedGraphSession.reset();
-    m_indexedGraphFileName.clear();
+    forgetIndexedGraph();
 #endif
+    parseGraphFile(fullFileName, fullFileName, {}, {});
+}
 
+// Parses path into g_assemblyGraph off the GUI thread; displayFileName is the file reported as loaded.
+void MainWindow::parseGraphFile(const QString &path, const QString &displayFileName,
+                                const std::function<void()> &onLoaded, const std::function<void()> &onFailed) {
     // We need to convert unique_ptr to shared_ptr in order to get builder shared between future and callback
-    std::shared_ptr<io::AssemblyGraphBuilder> builder = io::AssemblyGraphBuilder::get(fullFileName);
+    std::shared_ptr<io::AssemblyGraphBuilder> builder = io::AssemblyGraphBuilder::get(path);
     if (!builder) {
         QMessageBox::warning(this,
                              "Graph format not recognised",
                              "Cannot load file. The selected file's format was not recognised as any supported graph type.");
+        if (onFailed)
+            onFailed();
         return;
     }
     builder->treatJumpsAsLinks(g_settings->jumpsAsLinks);
@@ -443,7 +417,7 @@ void MainWindow::loadGraphFile(const QString &fullFileName) {
     cleanUp();
     ui->selectionSearchNodesLineEdit->clear();
 
-    auto *progress = new MyProgressDialog(this, "Loading " + fullFileName, false);
+    auto *progress = new MyProgressDialog(this, "Loading " + displayFileName, false);
     progress->setWindowModality(Qt::WindowModal);
     progress->show();
 
@@ -454,7 +428,7 @@ void MainWindow::loadGraphFile(const QString &fullFileName) {
                 if (auto E = watcher->future().takeResult()) {
                     QString errorTitle = "Error loading graph";
                     QString errorMessage = "There was an error when attempting to load\n"
-                                           + fullFileName + ":\n"
+                                           + displayFileName + ":\n"
                                            + QString::fromStdString(llvm::toString(std::move(E))) + "\n\n"
                                            + "Please verify that this file has the correct format.";
                     QMessageBox::warning(this, errorTitle, errorMessage);
@@ -462,6 +436,8 @@ void MainWindow::loadGraphFile(const QString &fullFileName) {
                     cleanUp();
                     clearGraphDetails();
                     setUiState(NO_GRAPH_LOADED);
+                    if (onFailed)
+                        onFailed();
                     return;
                 }
 
@@ -474,7 +450,9 @@ void MainWindow::loadGraphFile(const QString &fullFileName) {
                                          "perfect, so the behaviour of such edges in this graph "
                                          "is undefined.");
 
-                finishGraphLoad(fullFileName, builder->hasCustomColours(), builder->hasCustomLabels());
+                finishGraphLoad(displayFileName, builder->hasCustomColours(), builder->hasCustomLabels());
+                if (onLoaded)
+                    onLoaded();
     });
     connect(watcher, SIGNAL(finished()), progress, SLOT(deleteLater()));
     connect(watcher, SIGNAL(finished()), watcher, SLOT(deleteLater()));
@@ -483,10 +461,132 @@ void MainWindow::loadGraphFile(const QString &fullFileName) {
     watcher->setFuture(res);
 }
 
+#ifdef BANDAGE_HAVE_GFAIDX
+void MainWindow::openIndexedGraph(const QString &fullFileName) {
+    std::shared_ptr<graph::IndexedGraphSession> session;
+    try {
+        session = std::make_shared<graph::IndexedGraphSession>(fullFileName);
+    } catch (const std::exception &e) {
+        auto answer = QMessageBox::question(this, "Could not open index",
+                                            "The gfaidx index of\n" + fullFileName + "\ncould not be opened:\n" +
+                                            QString::fromUtf8(e.what()) +
+                                            "\n\nLoad the complete graph without the index instead?");
+        if (answer == QMessageBox::Yes)
+            loadGraphFile(fullFileName);
+        return;
+    }
+
+    showIndexQueryDialog(session, new IndexedGraphDialog(this, session));
+}
+
+// A dialog that isn't m_indexQueryDialog belongs to a newly opened index; it is only adopted once a query succeeds.
+void MainWindow::showIndexQueryDialog(std::shared_ptr<graph::IndexedGraphSession> session,
+                                      QPointer<IndexedGraphDialog> dialog) {
+    if (!dialog)
+        return;
+    const bool adopted = dialog == m_indexQueryDialog;
+
+    if (dialog->exec() != QDialog::Accepted) {
+        if (!adopted)
+            dialog->deleteLater();
+        return;
+    }
+
+    if (dialog->loadFullGraphRequested()) {
+        if (!adopted)
+            dialog->deleteLater();
+        loadGraphFile(session->fileName());
+        return;
+    }
+
+    runIndexQuery(std::move(session), dialog);
+}
+
+void MainWindow::runIndexQuery(std::shared_ptr<graph::IndexedGraphSession> session,
+                               QPointer<IndexedGraphDialog> dialog) {
+    const graph::IndexQuery query = dialog->query();
+    auto cancelled = std::make_shared<std::atomic<bool>>(false);
+
+    auto *progress = new MyProgressDialog(this, "Querying " + QFileInfo(session->fileName()).fileName(), true,
+                                          "Cancel", "Cancelling query...",
+                                          "Stops the query; the graph currently shown is kept.");
+    progress->setWindowModality(Qt::WindowModal);
+    progress->show();
+    connect(progress, &MyProgressDialog::halt, this, [cancelled] { *cancelled = true; });
+
+    auto reopenDialog = [this, session, dialog] {
+        QTimer::singleShot(0, this, [this, session, dialog] { showIndexQueryDialog(session, dialog); });
+    };
+
+    auto *watcher = new QFutureWatcher<graph::IndexQueryResult>;
+    connect(watcher, &QFutureWatcher<graph::IndexQueryResult>::finished, this,
+            [this, watcher, progress, session, dialog, query, reopenDialog] {
+                const graph::IndexQueryResult result = watcher->result();
+                progress->deleteLater();
+                watcher->deleteLater();
+
+                if (result.cancelled) {
+                    statusBar()->showMessage("Query cancelled.", 4000);
+                    reopenDialog();
+                    return;
+                }
+                if (!result.error.isEmpty()) {
+                    QString message = "The query failed:\n" + result.error;
+                    if (std::holds_alternative<graph::RegionQuery>(query))
+                        message += "\n\nPlease check the start and end coordinates.";
+                    QMessageBox::warning(this, "Query failed", message);
+                    reopenDialog();
+                    return;
+                }
+
+                if (m_indexQueryDialog != dialog) {
+                    if (m_indexQueryDialog)
+                        m_indexQueryDialog->deleteLater();
+                    m_indexQueryDialog = dialog;
+                }
+                m_indexedGraph = session;
+
+                const QString fileName = session->fileName();
+                parseGraphFile(result.gfaPath, fileName,
+                               [this, fileName, query, result] {
+                                   setWindowTitle("BandageNG - " + fileName + " [" + graph::describeQuery(query) + "]");
+                                   QString message = QString("Loaded %1: %2 nodes, %3 edges. Click \"Draw graph\" to display it.")
+                                                             .arg(graph::describeQuery(query),
+                                                                  formatIntForDisplay(g_assemblyGraph->m_nodeCount),
+                                                                  formatIntForDisplay(g_assemblyGraph->m_edgeCount));
+                                   if (!result.warnings.isEmpty())
+                                       message += "  (gfaidx: " + result.warnings.join("; ") + ")";
+                                   statusBar()->showMessage(message);
+                               },
+                               reopenDialog);
+            });
+
+    watcher->setFuture(QtConcurrent::run([this, session, query, cancelled] {
+        return session->runQuery(
+                query,
+                [this](const QString &message) {
+                    QMetaObject::invokeMethod(this, [this, message] { statusBar()->showMessage(message); },
+                                              Qt::QueuedConnection);
+                },
+                [cancelled] { return !cancelled->load(); });
+    }));
+}
+
+void MainWindow::forgetIndexedGraph() {
+    m_indexedGraph.reset();
+    if (m_indexQueryDialog)
+        m_indexQueryDialog->deleteLater();
+    m_indexQueryDialog = nullptr;
+}
+#endif
+
 void MainWindow::finishGraphLoad(const QString &fullFileName, bool customColours,
                                  [[maybe_unused]] bool customLabels) {
     setUiState(GRAPH_LOADED);
     setWindowTitle("BandageNG - " + fullFileName);
+#ifdef BANDAGE_HAVE_GFAIDX
+    ui->indexQueryButton->setEnabled(m_indexedGraph != nullptr);
+#endif
 
     g_assemblyGraph->determineGraphInfo();
     displayGraphDetails();
@@ -1036,6 +1136,19 @@ void MainWindow::graphScopeChanged()
 
         break;
     }
+
+#ifdef BANDAGE_HAVE_GFAIDX
+    // The indexed graph row goes below "Draw graph", after an empty row so the two buttons don't touch.
+    int drawRow, column, rowSpan, columnSpan;
+    auto *layout = ui->graphDrawingGridLayout;
+    layout->getItemPosition(layout->indexOf(ui->drawGraphButton), &drawRow, &column, &rowSpan, &columnSpan);
+    for (int row = 0; row < layout->rowCount(); ++row)
+        layout->setRowMinimumHeight(row, 0);
+    layout->setRowMinimumHeight(drawRow + 1, 8);
+    layout->addWidget(ui->indexQueryInfoText, drawRow + 2, 0, 1, 1);
+    layout->addWidget(ui->indexQueryLabel, drawRow + 2, 1, 1, 1);
+    layout->addWidget(ui->indexQueryButton, drawRow + 2, 2, 1, 1);
+#endif
 }
 
 
@@ -2497,42 +2610,10 @@ void MainWindow::nodeDistanceChanged() {
     g_settings->nodeDistance = ui->nodeDistanceSpinBox->value();
 }
 
-void MainWindow::requestSubgraph() {
-    const QString nodeId = ui->subgraphNodeLineEdit->text().simplified();
-    const int size = ui->subgraphSizeSpinBox->value();
-
-    if (nodeId.isEmpty()) {
-        statusBar()->showMessage("Subgraph request: please enter a node ID.", 4000);
-        return;
-    }
-
+void MainWindow::requeryIndexedGraph() {
 #ifdef BANDAGE_HAVE_GFAIDX
-    if (!m_indexedGraphSession) {
-        statusBar()->showMessage(
-            "No indexed graph is open - subgraph queries need a graph loaded via its gfaidx index.", 5000);
-        return;
-    }
-
-    resetScene();
-    cleanUp();
-    ui->selectionSearchNodesLineEdit->clear();
-
-    if (auto err = m_indexedGraphSession->loadSubgraphByNodes(*g_assemblyGraph, {nodeId},
-                                                               static_cast<unsigned>(size))) {
-        QMessageBox::warning(this, "Error loading subgraph",
-                             "There was an error loading the requested subgraph:\n"
-                             + QString::fromStdString(llvm::toString(std::move(err))));
-        resetScene();
-        cleanUp();
-        clearGraphDetails();
-        setUiState(NO_GRAPH_LOADED);
-        return;
-    }
-
-    finishGraphLoad(m_indexedGraphFileName, false, false);
-    statusBar()->showMessage(QString("Loaded subgraph around node %1").arg(nodeId), 4000);
-#else
-    statusBar()->showMessage("This build of BandageNG was built without gfaidx support.", 4000);
+    if (m_indexedGraph && m_indexQueryDialog)
+        showIndexQueryDialog(m_indexedGraph, m_indexQueryDialog);
 #endif
 }
 

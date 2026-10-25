@@ -17,32 +17,56 @@
 
 #pragma once
 
-#include <QDialog>
-#include <QString>
+#include "graph/indexedgraphsession.h"
 
+#include <QDialog>
+#include <memory>
+#include <vector>
+
+class QCheckBox;
+class QComboBox;
+class QLabel;
 class QLineEdit;
 class QSpinBox;
+class QTabWidget;
 
-// Shown when a file chosen via "Load graph" turns out to be a gfaidx-indexed
-// GFA: lets the user either load just the neighborhood of a seed node, or
-// fall back to loading the complete graph as if it weren't indexed.
+// Query window for a gfaidx-indexed graph. One instance lives as long as its index,
+// so the previous query is still filled in when it is opened again.
 class IndexedGraphDialog : public QDialog {
     Q_OBJECT
 
   public:
-    IndexedGraphDialog(QWidget *parent, const QString &summaryText);
+    IndexedGraphDialog(QWidget *parent, std::shared_ptr<const graph::IndexedGraphSession> session);
 
-    // Valid only when accepted with loadFullGraphRequested() == false.
-    [[nodiscard]] QString seedNodeId() const;
-    [[nodiscard]] unsigned maxNodes() const;
     [[nodiscard]] bool loadFullGraphRequested() const { return m_loadFullGraph; }
+    [[nodiscard]] const graph::IndexQuery &query() const { return m_query; }
 
   private slots:
-    void loadSubgraphClicked();
+    void runQueryClicked();
     void loadFullGraphClicked();
+    void updateRegionRange();
 
   private:
-    QLineEdit *m_nodeLineEdit;
-    QSpinBox *m_maxNodesSpinBox;
+    QWidget *createSubgraphTab();
+    QWidget *createRegionTab();
+    bool readSubgraphQuery(QString &error);
+    bool readRegionQuery(QString &error);
+    [[nodiscard]] const graph::RegionTarget *selectedTarget() const;
+
+    std::shared_ptr<const graph::IndexedGraphSession> m_session;
+    std::vector<graph::RegionTarget> m_targets;
+
+    QTabWidget *m_tabs = nullptr;
+    QLineEdit *m_seedsLineEdit = nullptr;
+    QSpinBox *m_maxNodesSpinBox = nullptr;
+    QCheckBox *m_subgraphCoordinatesCheckBox = nullptr;
+    QComboBox *m_targetComboBox = nullptr;
+    QLabel *m_targetRangeLabel = nullptr;
+    QLineEdit *m_startLineEdit = nullptr;
+    QLineEdit *m_endLineEdit = nullptr;
+    QCheckBox *m_regionCoordinatesCheckBox = nullptr;
+    QSpinBox *m_haplotypeGapSpinBox = nullptr;
+
+    graph::IndexQuery m_query;
     bool m_loadFullGraph = false;
 };

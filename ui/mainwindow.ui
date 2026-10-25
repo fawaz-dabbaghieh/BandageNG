@@ -555,8 +555,8 @@ When in double mode, you can include '+' or '-' at the end of the node name to s
                 </property>
                </widget>
               </item>
-              <item row="6" column="0">
-               <widget class="InfoTextWidget" name="subgraphLoadInfoText" native="true">
+              <item row="11" column="0">
+               <widget class="InfoTextWidget" name="indexQueryInfoText" native="true">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                   <horstretch>0</horstretch>
@@ -570,12 +570,12 @@ When in double mode, you can include '+' or '-' at the end of the node name to s
                  </size>
                 </property>
                 <property name="toolTip">
-                 <string>Re-query the currently open gfaidx index for a different node's neighborhood, replacing the graph now shown. Only available when the current graph was loaded from an index.</string>
+                 <string>Opens the query window of the gfaidx index the current graph was loaded from, the same one shown when an indexed graph is opened. Run a new subgraph (start nodes) or region (path or walk interval) query there to replace the graph now shown, or load the complete graph. Only available when the current graph was loaded from an index.</string>
                 </property>
                </widget>
               </item>
-              <item row="6" column="1">
-               <widget class="QLabel" name="subgraphLoadLabel">
+              <item row="11" column="1">
+               <widget class="QLabel" name="indexQueryLabel">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
                   <horstretch>0</horstretch>
@@ -583,80 +583,18 @@ When in double mode, you can include '+' or '-' at the end of the node name to s
                  </sizepolicy>
                 </property>
                 <property name="text">
-                 <string>Re-query:</string>
+                 <string>Indexed graph:</string>
                 </property>
                </widget>
               </item>
-              <item row="6" column="2">
-               <widget class="QWidget" name="subgraphLoadWidget" native="true">
-                <layout class="QHBoxLayout" name="horizontalLayout_subgraphLoad">
-                 <property name="spacing">
-                  <number>6</number>
-                 </property>
-                 <property name="leftMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="topMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="rightMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>0</number>
-                 </property>
-                 <item>
-                  <widget class="QLineEdit" name="subgraphNodeLineEdit">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                   <property name="focusPolicy">
-                    <enum>Qt::StrongFocus</enum>
-                   </property>
-                   <property name="placeholderText">
-                    <string>Node ID</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QSpinBox" name="subgraphSizeSpinBox">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                   <property name="focusPolicy">
-                    <enum>Qt::StrongFocus</enum>
-                   </property>
-                   <property name="alignment">
-                    <set>Qt::AlignCenter</set>
-                   </property>
-                   <property name="minimum">
-                    <number>1</number>
-                   </property>
-                   <property name="maximum">
-                    <number>1000000</number>
-                   </property>
-                   <property name="value">
-                    <number>200</number>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="subgraphLoadButton">
-                   <property name="focusPolicy">
-                    <enum>Qt::StrongFocus</enum>
-                   </property>
-                   <property name="text">
-                    <string>Re-query</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
+              <item row="11" column="2">
+               <widget class="QPushButton" name="indexQueryButton">
+                <property name="focusPolicy">
+                 <enum>Qt::StrongFocus</enum>
+                </property>
+                <property name="text">
+                 <string>Re-query...</string>
+                </property>
                </widget>
               </item>
               <item row="7" column="0">
@@ -3258,9 +3196,7 @@ then colour which other nodes in the graph are likely to be contiguous
   <tabstop>startingNodesExactMatchRadioButton</tabstop>
   <tabstop>startingNodesPartialMatchRadioButton</tabstop>
   <tabstop>nodeDistanceSpinBox</tabstop>
-  <tabstop>subgraphNodeLineEdit</tabstop>
-  <tabstop>subgraphSizeSpinBox</tabstop>
-  <tabstop>subgraphLoadButton</tabstop>
+  <tabstop>indexQueryButton</tabstop>
   <tabstop>minDepthSpinBox</tabstop>
   <tabstop>maxDepthSpinBox</tabstop>
   <tabstop>singleNodesRadioButton</tabstop>

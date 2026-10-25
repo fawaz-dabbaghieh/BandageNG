@@ -17,57 +17,269 @@
 
 #include "indexedgraphdialog.h"
 
+#include <QCheckBox>
+#include <QComboBox>
+#include <QCompleter>
 #include <QDialogButtonBox>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
-IndexedGraphDialog::IndexedGraphDialog(QWidget *parent, const QString &summaryText)
-        : QDialog(parent) {
-    setWindowTitle("Indexed graph detected");
+namespace {
+    QString formatNumber(std::uint64_t value) {
+        return QLocale().toString(qulonglong(value));
+    }
 
-    auto *summaryLabel = new QLabel(summaryText, this);
+    bool parsePosition(const QLineEdit *lineEdit, std::uint64_t &value) {
+        bool ok = false;
+        value = QString(lineEdit->text()).remove(',').trimmed().toULongLong(&ok);
+        return ok;
+    }
+
+    QLabel *descriptionLabel(const QString &text) {
+        auto *label = new QLabel(text);
+        label->setWordWrap(true);
+        return label;
+    }
+}
+
+IndexedGraphDialog::IndexedGraphDialog(QWidget *parent,
+                                       std::shared_ptr<const graph::IndexedGraphSession> session)
+        : QDialog(parent), m_session(std::move(session)), m_targets(m_session->regionTargets()) {
+    setWindowTitle("Query indexed graph");
+
+    auto *summaryLabel = new QLabel(
+            QString("<b>%1</b><br>Indexed graph with %2 nodes, %3 communities and %4 paths/walks. "
+                    "Load part of it with a query, or load the complete graph.")
+                    .arg(QFileInfo(m_session->fileName()).fileName().toHtmlEscaped(),
+                         formatNumber(m_session->nodeCount()),
+                         formatNumber(m_session->communityCount()),
+                         formatNumber(m_targets.size())),
+            this);
     summaryLabel->setWordWrap(true);
 
-    m_nodeLineEdit = new QLineEdit(this);
-    m_nodeLineEdit->setPlaceholderText("Node ID");
+    m_tabs = new QTabWidget(this);
+    m_tabs->addTab(createSubgraphTab(), "Subgraph");
+    m_tabs->addTab(createRegionTab(), "Region");
+    if (m_targets.empty()) {
+        m_tabs->setTabEnabled(1, false);
+        m_tabs->setTabToolTip(1, m_session->hasPathIndex()
+                                 ? "This graph has no P or W lines to query a region of."
+                                 : "This index has no path index (.pdx), so region queries are not available.");
+    }
 
-    m_maxNodesSpinBox = new QSpinBox(this);
-    m_maxNodesSpinBox->setRange(1, 1000000);
-    m_maxNodesSpinBox->setValue(200);
-
-    auto *form = new QFormLayout;
-    form->addRow("Seed node ID:", m_nodeLineEdit);
-    form->addRow("Max nodes:", m_maxNodesSpinBox);
-
-    auto *loadSubgraphButton = new QPushButton("Load subgraph", this);
-    loadSubgraphButton->setDefault(true);
+    auto *runQueryButton = new QPushButton("Run query", this);
+    runQueryButton->setDefault(true);
     auto *loadFullGraphButton = new QPushButton("Load full graph", this);
+    loadFullGraphButton->setToolTip("Load the complete graph without using the index.");
     auto *cancelButton = new QPushButton("Cancel", this);
 
     auto *buttonBox = new QDialogButtonBox(this);
-    buttonBox->addButton(loadSubgraphButton, QDialogButtonBox::AcceptRole);
-    buttonBox->addButton(loadFullGraphButton, QDialogButtonBox::AcceptRole);
+    buttonBox->addButton(runQueryButton, QDialogButtonBox::AcceptRole);
+    buttonBox->addButton(loadFullGraphButton, QDialogButtonBox::ActionRole);
     buttonBox->addButton(cancelButton, QDialogButtonBox::RejectRole);
 
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(summaryLabel);
-    layout->addLayout(form);
+    layout->addWidget(m_tabs);
     layout->addWidget(buttonBox);
 
-    connect(loadSubgraphButton, &QPushButton::clicked, this, &IndexedGraphDialog::loadSubgraphClicked);
+    connect(runQueryButton, &QPushButton::clicked, this, &IndexedGraphDialog::runQueryClicked);
     connect(loadFullGraphButton, &QPushButton::clicked, this, &IndexedGraphDialog::loadFullGraphClicked);
     connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
 }
 
-void IndexedGraphDialog::loadSubgraphClicked() {
-    if (m_nodeLineEdit->text().simplified().isEmpty()) {
-        QMessageBox::warning(this, "No node ID given", "Please enter a node ID to query, "
-                                                        "or click \"Load full graph\" instead.");
+QWidget *IndexedGraphDialog::createSubgraphTab() {
+    auto *tab = new QWidget;
+
+    m_seedsLineEdit = new QLineEdit(tab);
+    m_seedsLineEdit->setPlaceholderText("e.g. 12, or 12, 40, 57");
+
+    m_maxNodesSpinBox = new QSpinBox(tab);
+    m_maxNodesSpinBox->setRange(1, 10'000'000);
+    m_maxNodesSpinBox->setValue(200);
+    m_maxNodesSpinBox->setGroupSeparatorShown(true);
+
+    m_subgraphCoordinatesCheckBox = new QCheckBox("With coordinates", tab);
+    m_subgraphCoordinatesCheckBox->setToolTip("Keep coordinates on the P/W lines of the result.");
+    m_subgraphCoordinatesCheckBox->setEnabled(m_session->hasPathIndex());
+
+    auto *form = new QFormLayout;
+    form->addRow("Start node(s):", m_seedsLineEdit);
+    form->addRow("Max nodes:", m_maxNodesSpinBox);
+    form->addRow("", m_subgraphCoordinatesCheckBox);
+
+    auto *layout = new QVBoxLayout(tab);
+    layout->addWidget(descriptionLabel("Loads the neighbourhood around one or more start nodes "
+                                       "(breadth-first, up to the maximum number of nodes)."));
+    layout->addLayout(form);
+    layout->addStretch();
+    return tab;
+}
+
+QWidget *IndexedGraphDialog::createRegionTab() {
+    auto *tab = new QWidget;
+
+    m_targetComboBox = new QComboBox(tab);
+    m_targetComboBox->setEditable(true);
+    m_targetComboBox->setInsertPolicy(QComboBox::NoInsert);
+    m_targetComboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_targetComboBox->setMinimumContentsLength(40);
+    for (const auto &target : m_targets)
+        m_targetComboBox->addItem(target.label);
+    m_targetComboBox->completer()->setFilterMode(Qt::MatchContains);
+    m_targetComboBox->completer()->setCaseSensitivity(Qt::CaseInsensitive);
+    m_targetComboBox->completer()->setCompletionMode(QCompleter::PopupCompletion);
+
+    m_targetRangeLabel = new QLabel(tab);
+    m_targetRangeLabel->setWordWrap(true);
+
+    auto *positionValidator = new QRegularExpressionValidator(QRegularExpression("[0-9,]*"), tab);
+    m_startLineEdit = new QLineEdit(tab);
+    m_startLineEdit->setValidator(positionValidator);
+    m_endLineEdit = new QLineEdit(tab);
+    m_endLineEdit->setValidator(positionValidator);
+
+    m_haplotypeGapSpinBox = new QSpinBox(tab);
+    m_haplotypeGapSpinBox->setRange(0, 1'000'000'000);
+    m_haplotypeGapSpinBox->setValue(10'000);
+    m_haplotypeGapSpinBox->setSuffix(" bp");
+    m_haplotypeGapSpinBox->setGroupSeparatorShown(true);
+    m_haplotypeGapSpinBox->setToolTip("Maximum number of unshared bases that may bridge matches when "
+                                      "collecting the other haplotypes.");
+    if (!m_session->hasNodeLengths()) {
+        m_haplotypeGapSpinBox->setEnabled(false);
+        m_haplotypeGapSpinBox->setToolTip("Needs the node length index (.lnx), which this index does not have.");
+    }
+
+    m_regionCoordinatesCheckBox = new QCheckBox("With coordinates", tab);
+    m_regionCoordinatesCheckBox->setToolTip("Keep coordinates on the P/W lines of the result.");
+
+    auto *form = new QFormLayout;
+    form->addRow("Path or walk:", m_targetComboBox);
+    form->addRow("", m_targetRangeLabel);
+    form->addRow("Start:", m_startLineEdit);
+    form->addRow("End:", m_endLineEdit);
+    form->addRow("Haplotype gap:", m_haplotypeGapSpinBox);
+    form->addRow("", m_regionCoordinatesCheckBox);
+
+    auto *layout = new QVBoxLayout(tab);
+    layout->addWidget(descriptionLabel("Loads an interval of the chosen path or walk together with every "
+                                       "haplotype that passes through it. Positions are 0-based and the "
+                                       "end is excluded."));
+    layout->addLayout(form);
+    layout->addStretch();
+
+    connect(m_targetComboBox, &QComboBox::currentIndexChanged, this, &IndexedGraphDialog::updateRegionRange);
+    updateRegionRange();
+    return tab;
+}
+
+void IndexedGraphDialog::updateRegionRange() {
+    const auto *target = selectedTarget();
+    if (!target) {
+        m_targetRangeLabel->clear();
+        return;
+    }
+
+    m_startLineEdit->setPlaceholderText(formatNumber(target->begin));
+    if (target->end) {
+        m_targetRangeLabel->setText(QString("Valid range: %1 to %2")
+                                            .arg(formatNumber(target->begin), formatNumber(*target->end)));
+        m_endLineEdit->setPlaceholderText(formatNumber(*target->end));
+    } else {
+        m_targetRangeLabel->setText(QString("Valid range: from %1; the length of this path is not known, "
+                                            "so the end cannot be checked before querying.")
+                                            .arg(formatNumber(target->begin)));
+        m_endLineEdit->setPlaceholderText("");
+    }
+}
+
+const graph::RegionTarget *IndexedGraphDialog::selectedTarget() const {
+    const int index = m_targetComboBox->findText(m_targetComboBox->currentText(), Qt::MatchExactly);
+    if (index < 0 || index >= int(m_targets.size()))
+        return nullptr;
+    return &m_targets[index];
+}
+
+bool IndexedGraphDialog::readSubgraphQuery(QString &error) {
+    QStringList seeds = m_seedsLineEdit->text().split(QRegularExpression("[,\\s]+"), Qt::SkipEmptyParts);
+    seeds.removeDuplicates();
+    if (seeds.isEmpty()) {
+        error = "Enter at least one start node.";
+        return false;
+    }
+
+    QStringList missing;
+    for (auto &seed : seeds) {
+        if (m_session->nodeExists(seed))
+            continue;
+        // Bandage names nodes with a strand suffix; the index only knows the segment name.
+        if ((seed.endsWith('+') || seed.endsWith('-')) && m_session->nodeExists(seed.chopped(1)))
+            seed.chop(1);
+        else
+            missing << seed;
+    }
+    if (!missing.isEmpty()) {
+        error = "These nodes are not in the index: " + missing.join(", ");
+        return false;
+    }
+
+    const auto maxNodes = unsigned(m_maxNodesSpinBox->value());
+    if (unsigned(seeds.size()) > maxNodes) {
+        error = "There are more start nodes than the maximum number of nodes.";
+        return false;
+    }
+
+    m_query = graph::SubgraphQuery{seeds, maxNodes, m_subgraphCoordinatesCheckBox->isChecked()};
+    return true;
+}
+
+bool IndexedGraphDialog::readRegionQuery(QString &error) {
+    const auto *target = selectedTarget();
+    if (!target) {
+        error = "Choose a path or walk from the list.";
+        return false;
+    }
+
+    std::uint64_t start = 0, end = 0;
+    if (!parsePosition(m_startLineEdit, start) || !parsePosition(m_endLineEdit, end)) {
+        error = "Enter both a start and an end position.";
+        return false;
+    }
+    if (start >= end) {
+        error = "The start must be smaller than the end.";
+        return false;
+    }
+    if (start < target->begin || (target->end && end > *target->end)) {
+        error = target->end ? QString("The interval must lie within %1 to %2.")
+                                      .arg(formatNumber(target->begin), formatNumber(*target->end))
+                            : QString("The start must be at least %1.").arg(formatNumber(target->begin));
+        return false;
+    }
+
+    graph::RegionQuery query{target->reference, target->sequence, start, end,
+                             m_regionCoordinatesCheckBox->isChecked(), std::nullopt};
+    if (m_haplotypeGapSpinBox->isEnabled())
+        query.haplotypeGap = std::uint64_t(m_haplotypeGapSpinBox->value());
+    m_query = query;
+    return true;
+}
+
+void IndexedGraphDialog::runQueryClicked() {
+    QString error;
+    const bool valid = m_tabs->currentIndex() == 0 ? readSubgraphQuery(error) : readRegionQuery(error);
+    if (!valid) {
+        QMessageBox::warning(this, "Cannot run query", error);
         return;
     }
     m_loadFullGraph = false;
@@ -77,12 +289,4 @@ void IndexedGraphDialog::loadSubgraphClicked() {
 void IndexedGraphDialog::loadFullGraphClicked() {
     m_loadFullGraph = true;
     accept();
-}
-
-QString IndexedGraphDialog::seedNodeId() const {
-    return m_nodeLineEdit->text().simplified();
-}
-
-unsigned IndexedGraphDialog::maxNodes() const {
-    return static_cast<unsigned>(m_maxNodesSpinBox->value());
 }

@@ -53,7 +53,6 @@ set(LIB_SOURCES
     ui/nodewidthvisualaid.cpp
     ui/dialogs/pathspecifydialog.cpp
     ui/dialogs/querypathsdialog.cpp
-    ui/dialogs/indexedgraphdialog.cpp
     ui/dialogs/settingsdialog.cpp
     ui/widgets/verticallabel.cpp
     ui/widgets/verticalscrollarea.cpp
@@ -110,18 +109,6 @@ add_compile_definitions(APP_VERSION="${PROJECT_VERSION}")
 add_subdirectory(thirdparty)
 include_directories(thirdparty)
 
-# gfaidx: indexed GFA subgraph queries (local sibling checkout during active
-# co-development; EXCLUDE_FROM_ALL keeps its CLI/tests/python bindings out of
-# the default build target).
-set(GFAIDX_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../gfaidx" CACHE PATH "Path to a local gfaidx checkout")
-if (EXISTS "${GFAIDX_SOURCE_DIR}/CMakeLists.txt")
-  add_subdirectory(${GFAIDX_SOURCE_DIR} ${CMAKE_BINARY_DIR}/gfaidx EXCLUDE_FROM_ALL)
-  set(BANDAGE_HAVE_GFAIDX ON)
-else()
-  message(WARNING "gfaidx not found at ${GFAIDX_SOURCE_DIR} - indexed subgraph loading disabled")
-  set(BANDAGE_HAVE_GFAIDX OFF)
-endif()
-
 include(FetchContent)
 # Lexy for GFA parser
 FetchContent_Declare(lexy URL https://lexy.foonathan.net/download/lexy-src.zip)
@@ -139,6 +126,21 @@ FetchContent_Declare(
     SOURCE_SUBDIR build/cmake
 )
 FetchContent_MakeAvailable(zstd)
+
+# gfaidx uses POSIX-only APIs (mmap, unistd.h), so it cannot be built on Windows yet
+include(CMakeDependentOption)
+cmake_dependent_option(BANDAGE_WITH_GFAIDX "Load subgraphs from gfaidx-indexed GFA files" ON "NOT WIN32" OFF)
+if (BANDAGE_WITH_GFAIDX)
+  # To build against a local gfaidx checkout instead: -DFETCHCONTENT_SOURCE_DIR_GFAIDX=<path>
+  FetchContent_Declare(
+      gfaidx
+      URL "https://github.com/fawaz-dabbaghieh/gfaidx/archive/refs/tags/v2.1.0.tar.gz"
+      URL_HASH SHA256=ff9836f7be3b35561ae322faea58efa2e04f09966635e6a50ee86001058ef588
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      EXCLUDE_FROM_ALL
+  )
+  FetchContent_MakeAvailable(gfaidx)
+endif()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -158,13 +160,13 @@ target_link_libraries(BandageIo PRIVATE Qt6::Gui Qt6::Widgets Qt6::Network foona
 
 # FIXME: Untagle this
 include_directories(ui)
-if (BANDAGE_HAVE_GFAIDX)
-  list(APPEND LIB_SOURCES graph/indexedgraphsession.cpp)
+if (BANDAGE_WITH_GFAIDX)
+  list(APPEND LIB_SOURCES graph/indexedgraphsession.cpp ui/dialogs/indexedgraphdialog.cpp)
 endif()
 add_library(BandageLib STATIC ${LIB_SOURCES} ${FORMS} graphsearch/graphsearchers.cpp)
 target_link_libraries(BandageLib PRIVATE BandageLayout BandageIo llvmSupport Qt6::Concurrent Qt6::Widgets Qt6::Svg Qt6::Network ${bandage_zlib})
 target_include_directories(BandageLib INTERFACE ".")
-if (BANDAGE_HAVE_GFAIDX)
+if (BANDAGE_WITH_GFAIDX)
   target_link_libraries(BandageLib PRIVATE gfaidx::gfaidx)
   target_compile_definitions(BandageLib PUBLIC BANDAGE_HAVE_GFAIDX)
 endif()
