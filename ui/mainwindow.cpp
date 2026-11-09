@@ -36,9 +36,6 @@
 #include "ui/dialogs/indexedgraphdialog.h"
 #endif
 
-#include "graphsearch/blast/blastsearch.h"
-#include "graphsearch/minimap2/minimap2search.h"
-
 #include "graph/assemblygraph.h"
 #include "graph/debruijnnode.h"
 #include "graph/debruijnedge.h"
@@ -118,7 +115,7 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
     QMainWindow(nullptr),
     ui(new Ui::MainWindow), m_imageFilter("PNG (*.png)"),
     m_fileToLoadOnStartup(fileToLoadOnStartup), m_drawGraphAfterLoad(drawGraphAfterLoad),
-    m_uiState(NO_GRAPH_LOADED), m_blastSearchDialog(nullptr), m_alreadyShown(false)
+    m_uiState(NO_GRAPH_LOADED), m_graphSearchDialog(nullptr), m_alreadyShown(false)
 {
     ui->setupUi(this);
 
@@ -157,7 +154,7 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
 
     ui->bedButton->setContent(ui->bedLoadWidget);
     ui->annotationsButton->setContent(ui->annotationsListWidget);
-    ui->blastDetailsButton->setContent(ui->blastDetailsWidget);
+    ui->graphSearchDetailsButton->setContent(ui->graphSearchDetailsWidget);
 
     //If this is a Mac, change the 'Delete' shortcuts to 'Backspace' instead.
 #ifdef Q_OS_MAC
@@ -210,13 +207,13 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
     connect(ui->walkListButton, &QPushButton::clicked, this, &MainWindow::showWalkListDialog);
     connect(ui->selectionSearchNodesLineEdit, SIGNAL(returnPressed()), this, SLOT(selectUserSpecifiedNodes()));
     connect(ui->actionAbout, SIGNAL(triggered()), this, SLOT(openAboutDialog()));
-    connect(ui->blastSearchButton, SIGNAL(clicked()), this, SLOT(openBlastSearchDialog()));
-    connect(ui->blastQueryComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(blastQueryChanged()));
+    connect(ui->graphSearchButton, SIGNAL(clicked()), this, SLOT(openGraphSearchDialog()));
+    connect(ui->queryComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(queryChanged()));
     connect(ui->actionControls_panel, SIGNAL(toggled(bool)), this, SLOT(showHidePanels()));
     connect(ui->actionSelection_panel, SIGNAL(toggled(bool)), this, SLOT(showHidePanels()));
     connect(ui->contiguityButton, SIGNAL(clicked()), this, SLOT(determineContiguityFromSelectedNode()));
     connect(ui->actionBring_selected_nodes_to_front, SIGNAL(triggered()), this, SLOT(bringSelectedNodesToFront()));
-    connect(ui->actionSelect_nodes_with_BLAST_hits, SIGNAL(triggered()), this, SLOT(selectNodesWithBlastHits()));
+    connect(ui->actionSelect_nodes_with_query_hits, SIGNAL(triggered()), this, SLOT(selectNodesWithQueryHits()));
     connect(ui->actionSelect_nodes_with_dead_ends, SIGNAL(triggered()), this, SLOT(selectNodesWithDeadEnds()));
     connect(ui->actionSelect_all, SIGNAL(triggered()), this, SLOT(selectAll()));
     connect(ui->actionSelect_none, SIGNAL(triggered()), this, SLOT(selectNone()));
@@ -254,8 +251,8 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
 
 
 // This function runs after the MainWindow has been shown.  This code is not
-// included in the constructor because it can perform a BLAST search, which
-// will fill the BLAST query combo box and screw up widget sizes.
+// included in the constructor because it can perform a graph search, which
+// will fill the query combo box and screw up widget sizes.
 void MainWindow::afterMainWindowShow() {
     if (m_alreadyShown)
         return;
@@ -269,10 +266,10 @@ void MainWindow::afterMainWindowShow() {
                   << ", " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
     }
 
-    // If a BLAST query filename is present, do the BLAST search now automatically.
-    if (!g_settings->blastQueryFilename.isEmpty()) {
-        GraphSearchDialog blastSearchDialog(this, g_settings->blastQueryFilename);
-        setupBlastQueryComboBox();
+    // If a query filename is present, do the graph search now automatically.
+    if (!g_settings->queryFilename.isEmpty()) {
+        GraphSearchDialog graphSearchDialog(this, g_settings->queryFilename);
+        setupQueryComboBox();
     }
 
     // If the draw option was used and the graph appears to have loaded (i.e. there
@@ -296,13 +293,13 @@ MainWindow::~MainWindow() {
 
 
 void MainWindow::cleanUp() {
-    ui->blastQueryComboBox->clear();
-    ui->blastQueryComboBox->addItem("none");
+    ui->queryComboBox->clear();
+    ui->queryComboBox->addItem("none");
 
-    if (m_blastSearchDialog) {
-        m_blastSearchDialog->search()->cleanUp();
-        delete m_blastSearchDialog;
-        m_blastSearchDialog = nullptr;
+    if (m_graphSearchDialog) {
+        m_graphSearchDialog->search()->cleanUp();
+        delete m_graphSearchDialog;
+        m_graphSearchDialog = nullptr;
     }
 
     g_assemblyGraph->cleanUp();
@@ -881,9 +878,7 @@ QString MainWindow::getSelectedEdgeListText()
                 edgeText += " (link";
                 auto tags = g_assemblyGraph->m_edgeTags.find(edge);
                 if (tags != g_assemblyGraph->m_edgeTags.end()) {
-                    if (auto wt = gfa::getTag<float>("WT", tags->second))
-                        edgeText += QString(", weight: %1").arg(*wt);
-                    if (auto wt = gfa::getTag<int64_t>("WT", tags->second))
+                    if (auto wt = gfa::getNumericTag("WT", tags->second))
                         edgeText += QString(", weight: %1").arg(*wt);
                 }
 
@@ -1043,7 +1038,7 @@ void MainWindow::graphScopeChanged()
         break;
 
     case 4:
-        g_settings->graphScope = AROUND_BLAST_HITS;
+        g_settings->graphScope = AROUND_QUERY_HITS;
 
         setStartingNodesWidgetVisibility(false);
         setNodeDistanceWidgetVisibility(true);
@@ -1051,11 +1046,11 @@ void MainWindow::graphScopeChanged()
         setPathSelectionWidgetVisibility(false);
         setWalkSelectionWidgetVisibility(false);
 
-        ui->nodeDistanceInfoText->setToolTip("<html>Nodes will be drawn if they contain a BLAST hit or are within this "
-                                              "many steps of nodes with a BLAST hit.<br><br>"
-                                              "A value of 0 will result in only nodes with BLAST hits being drawn. "
+        ui->nodeDistanceInfoText->setToolTip("<html>Nodes will be drawn if they contain a query hit or are within this "
+                                              "many steps of nodes with a query hit.<br><br>"
+                                              "A value of 0 will result in only nodes with query hits being drawn. "
                                               "A large value will result in large sections of the graph around "
-                                              "nodes with BLAST hits being drawn.</html>");
+                                              "nodes with query hits being drawn.</html>");
 
         ui->graphDrawingGridLayout->addWidget(ui->nodeDistanceInfoText, 1, 0, 1, 1);
         ui->graphDrawingGridLayout->addWidget(ui->nodeDistanceLabel, 1, 1, 1, 1);
@@ -1276,8 +1271,8 @@ void MainWindow::drawGraph() {
             graph::scope(g_settings->graphScope,
                          ui->startingNodesLineEdit->text(),
                          ui->minDepthSpinBox->value(), ui->maxDepthSpinBox->value(),
-                         m_blastSearchDialog ? &m_blastSearchDialog->search()->queries() : nullptr,
-                         ui->blastQueryComboBox->currentText(),
+                         m_graphSearchDialog ? &m_graphSearchDialog->search()->queries() : nullptr,
+                         ui->queryComboBox->currentText(),
                          ui->pathSelectionLineEdit->displayText(),
                          ui->nodeDistanceSpinBox->value(),
                          ui->walkSelectionLineEdit->displayText());
@@ -1351,7 +1346,7 @@ void MainWindow::layoutGraph()
                                           "Layout can take a long time for very large graphs.  There are "
                                           "three strategies to reduce the amount of time required:<ul>"
                                           "<li>Change the scope of the graph from 'Entire graph' to either "
-                                          "'Around nodes' or 'Around BLAST hits'.  This will reduce the "
+                                          "'Around nodes' or 'Around query hits'.  This will reduce the "
                                           "number of nodes that are drawn to the screen.</li>"
                                           "<li>Increase the 'Base pairs per segment' setting.  This will "
                                           "result in shorter contigs which take less time to lay out.</li>"
@@ -2166,62 +2161,62 @@ void MainWindow::openAboutDialog()
 }
 
 
-void MainWindow::openBlastSearchDialog() {
-    // If a BLAST search dialog does not currently exist, make it.
-    if (!m_blastSearchDialog) {
-        m_blastSearchDialog = new GraphSearchDialog(this);
-        connect(m_blastSearchDialog, SIGNAL(changed()), this, SLOT(blastChanged()));
-        connect(m_blastSearchDialog, SIGNAL(queryPathSelectionChanged()), g_graphicsView->viewport(), SLOT(update()));
+void MainWindow::openGraphSearchDialog() {
+    // If a graph search dialog does not currently exist, make it.
+    if (!m_graphSearchDialog) {
+        m_graphSearchDialog = new GraphSearchDialog(this);
+        connect(m_graphSearchDialog, SIGNAL(changed()), this, SLOT(graphSearchChanged()));
+        connect(m_graphSearchDialog, SIGNAL(queryPathSelectionChanged()), g_graphicsView->viewport(), SLOT(update()));
     }
 
-    m_blastSearchDialog->show();
+    m_graphSearchDialog->show();
 }
 
 
 //This function is called whenever the user does something in the
 //GraphSearchDialog that should be reflected here in MainWindow.
-void MainWindow::blastChanged() {
-    if (!m_blastSearchDialog)
+void MainWindow::graphSearchChanged() {
+    if (!m_graphSearchDialog)
         return;
 
-    const auto *search = m_blastSearchDialog->search();
-    QString blastQueryText = ui->blastQueryComboBox->currentText();
-    const auto *queryBefore = search->queries().getQueryFromName(blastQueryText);
+    const auto *search = m_graphSearchDialog->search();
+    QString queryText = ui->queryComboBox->currentText();
+    const auto *queryBefore = search->queries().getQueryFromName(queryText);
 
     // If we didn't find a currently selected query, but it isn't "none" or "all",
     // then maybe the user changed the name of the currently selected query, and
     // that's why we didn't find it.  In that case, try to find it using the
     // index.
-    if (queryBefore == nullptr && blastQueryText != "none" && blastQueryText != "all") {
-        int blastQueryIndex = ui->blastQueryComboBox->currentIndex();
-        if (ui->blastQueryComboBox->count() > 1)
-            --blastQueryIndex;
-        if (blastQueryIndex < search->getQueryCount())
-            queryBefore = search->query(blastQueryIndex);
+    if (queryBefore == nullptr && queryText != "none" && queryText != "all") {
+        int queryIndex = ui->queryComboBox->currentIndex();
+        if (ui->queryComboBox->count() > 1)
+            --queryIndex;
+        if (queryIndex < search->getQueryCount())
+            queryBefore = search->query(queryIndex);
     }
 
     //Rebuild the query combo box, in case the user changed the queries or
     //their names.
-    setupBlastQueryComboBox();
+    setupQueryComboBox();
 
     //Look to see if the query selected before is still present.  If so,
     //set the combo box to have that query selected.  If not (or if no
     //query was previously selected), leave the combo box a index 0.
     if (queryBefore && search->isQueryPresent(queryBefore)) {
-        int indexOfQuery = ui->blastQueryComboBox->findText(queryBefore->getName());
+        int indexOfQuery = ui->queryComboBox->findText(queryBefore->getName());
         if (indexOfQuery != -1)
-            ui->blastQueryComboBox->setCurrentIndex(indexOfQuery);
+            ui->queryComboBox->setCurrentIndex(indexOfQuery);
     }
 
-    blastQueryChanged();
+    queryChanged();
 }
 
-void MainWindow::setupBlastQueryComboBox() {
-    ui->blastQueryComboBox->clear();
-    if (!m_blastSearchDialog)
+void MainWindow::setupQueryComboBox() {
+    ui->queryComboBox->clear();
+    if (!m_graphSearchDialog)
         return;
 
-    const auto *search = m_blastSearchDialog->search();
+    const auto *search = m_graphSearchDialog->search();
     QStringList comboBoxItems;
     for (const auto &query : search->queries()) {
         if (query->hasHits())
@@ -2232,23 +2227,23 @@ void MainWindow::setupBlastQueryComboBox() {
         comboBoxItems.push_front("all");
 
     if (!comboBoxItems.empty()) {
-        ui->blastQueryComboBox->addItems(comboBoxItems);
-        ui->blastQueryComboBox->setEnabled(true);
+        ui->queryComboBox->addItems(comboBoxItems);
+        ui->queryComboBox->setEnabled(true);
     } else {
-        ui->blastQueryComboBox->addItem("none");
-        ui->blastQueryComboBox->setEnabled(false);
+        ui->queryComboBox->addItem("none");
+        ui->queryComboBox->setEnabled(false);
     }
 }
 
-void MainWindow::blastQueryChanged() {
-    if (!m_blastSearchDialog)
+void MainWindow::queryChanged() {
+    if (!m_graphSearchDialog)
         return;
 
-    QString queryName = ui->blastQueryComboBox->currentText();
-    const auto *search = m_blastSearchDialog->search();
+    QString queryName = ui->queryComboBox->currentText();
+    const auto *search = m_graphSearchDialog->search();
 
     std::vector<search::Query *> shownQueries;
-    // If "all" is selected, then we'll display each of the BLAST queries
+    // If "all" is selected, then we'll display each of the queries
     if (queryName == "all") {
         for (auto *query : search->queries()) {
             if (query->isShown())
@@ -2275,7 +2270,7 @@ void MainWindow::setUiState(UiState uiState)
         ui->graphDrawingWidget->setEnabled(false);
         ui->graphDisplayWidget->setEnabled(false);
         ui->nodeLabelsWidget->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(false);
+        ui->graphSearchWidget->setEnabled(false);
         ui->bedWidget->setEnabled(false);
         ui->annotationSelectorWidget->setEnabled(false);
         ui->selectionScrollAreaWidgetContents->setEnabled(false);
@@ -2290,7 +2285,7 @@ void MainWindow::setUiState(UiState uiState)
         ui->graphDrawingWidget->setEnabled(true);
         ui->graphDisplayWidget->setEnabled(false);
         ui->nodeLabelsWidget->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(true);
+        ui->graphSearchWidget->setEnabled(true);
         ui->bedWidget->setEnabled(true);
         ui->annotationSelectorWidget->setEnabled(true);
         ui->selectionScrollAreaWidgetContents->setEnabled(true);
@@ -2305,7 +2300,7 @@ void MainWindow::setUiState(UiState uiState)
         ui->graphDrawingWidget->setEnabled(true);
         ui->graphDisplayWidget->setEnabled(true);
         ui->nodeLabelsWidget->setEnabled(true);
-        ui->blastSearchWidget->setEnabled(true);
+        ui->graphSearchWidget->setEnabled(true);
         ui->bedWidget->setEnabled(true);
         ui->annotationSelectorWidget->setEnabled(true);
         ui->selectionScrollAreaWidgetContents->setEnabled(true);
@@ -2351,60 +2346,47 @@ void MainWindow::bringSelectedNodesToFront() {
 }
 
 
-// TODO: rewrite to selectNodesWithAnnotation
-void MainWindow::selectNodesWithBlastHits() {
-    const auto *blastHitsGroup = g_annotationsManager->findGroupByName(g_settings->blastAnnotationGroupName);
-    if (!blastHitsGroup) {
-        QMessageBox::information(this, "No BLAST hits",
-                                       "To select nodes with BLAST hits, you must first conduct a BLAST search.");
+void MainWindow::selectNodesWithQueryHits() {
+    QString searchName = "graph search";
+    const AnnotationGroup *hitsGroup = nullptr;
+
+    if (m_graphSearchDialog) {
+        const auto *search = m_graphSearchDialog->search();
+        searchName = search->name();
+        hitsGroup = g_annotationsManager->findGroupByName(search->annotationGroupName());
+    }
+
+    auto nodesWithHits = hitsGroup
+            ? hitsGroup->getNodesWithAnnotations(g_settings->doubleMode)
+            : std::vector<DeBruijnNode *>{};
+
+    if (nodesWithHits.empty()) {
+        QMessageBox::information(this, "No query hits",
+                                 QString("To select nodes with query hits, you must first conduct a %1.")
+                                         .arg(searchName));
         return;
     }
 
     m_scene->blockSignals(true);
     m_scene->clearSelection();
 
-    bool atLeastOneNodeHasBlastHits = false;
     bool atLeastOneNodeSelected = false;
-
-    for (auto &[node, annotations] : blastHitsGroup->annotationMap) {
-
-        bool nodeHasBlastHits;
-
-        //If we're in double mode, only select a node if it has a BLAST hit itself.
-        nodeHasBlastHits = !annotations.empty();
-        if (!g_settings->doubleMode)
-            //In single mode, select a node if it or its reverse complement has a BLAST hit.
-            nodeHasBlastHits = nodeHasBlastHits || !blastHitsGroup->getAnnotations(node->getReverseComplement()).empty();
-
-        if (nodeHasBlastHits)
-            atLeastOneNodeHasBlastHits = true;
-
-        GraphicsItemNode * graphicsItemNode = node->getGraphicsItemNode();
-
+    for (DeBruijnNode *node : nodesWithHits) {
+        GraphicsItemNode *graphicsItemNode = node->getGraphicsItemNode();
         if (graphicsItemNode == nullptr)
             continue;
-
-        if (nodeHasBlastHits)
-        {
-            graphicsItemNode->setSelected(true);
-            atLeastOneNodeSelected = true;
-        }
+        graphicsItemNode->setSelected(true);
+        atLeastOneNodeSelected = true;
     }
+
     m_scene->blockSignals(false);
     g_graphicsView->viewport()->update();
     selectionChanged();
 
-    if (!atLeastOneNodeHasBlastHits)
-    {
-        QMessageBox::information(this, "No BLAST hits",
-                                       "To select nodes with BLAST hits, you must first conduct a BLAST search.");
-        return;
-    }
-
     if (!atLeastOneNodeSelected)
-        QMessageBox::information(this, "No BLAST hits in visible nodes",
-                                       "No nodes with BLAST hits are currently visible, so there is nothing to select. "
-                                       "Adjust the graph scope to make the nodes with BLAST hits visible.");
+        QMessageBox::information(this, "No query hits in visible nodes",
+                                 "No nodes with query hits are currently visible, so there is nothing to select. "
+                                 "Adjust the graph scope to make the nodes with query hits visible.");
     else
         zoomToSelection();
 }
@@ -2808,9 +2790,9 @@ void MainWindow::removeSelection()
     g_assemblyGraph->determineGraphInfo();
     displayGraphDetails();
 
-    // Now that the graph has changed, we have to reset BLAST and contiguity
+    // Now that the graph has changed, we have to reset graph search and contiguity
     // stuff, as they may no longer apply.
-    cleanUpAllBlast();
+    cleanUpGraphSearch();
 
     resetNodeContiguityStatus();
     resetAllNodeColours();
@@ -2844,9 +2826,9 @@ void MainWindow::duplicateSelectedNodes()
     g_assemblyGraph->determineGraphInfo();
     displayGraphDetails();
 
-    // Now that the graph has changed, we have to reset BLAST and contiguity
+    // Now that the graph has changed, we have to reset graph search and contiguity
     // stuff, as they may no longer apply.
-    cleanUpAllBlast();
+    cleanUpGraphSearch();
     resetNodeContiguityStatus();
     resetAllNodeColours();
 }
@@ -2882,9 +2864,9 @@ void MainWindow::mergeSelectedNodes() {
     g_assemblyGraph->determineGraphInfo();
     displayGraphDetails();
 
-    // Now that the graph has changed, we have to reset BLAST and contiguity
+    // Now that the graph has changed, we have to reset graph search and contiguity
     // stuff, as they may no longer apply.
-    cleanUpAllBlast();
+    cleanUpGraphSearch();
     resetNodeContiguityStatus();
     resetAllNodeColours();
 }
@@ -2915,9 +2897,9 @@ void MainWindow::mergeAllPossible()
         g_assemblyGraph->determineGraphInfo();
         displayGraphDetails();
 
-        //Now that the graph has changed, we have to reset BLAST and contiguity
+        //Now that the graph has changed, we have to reset graph search and contiguity
         //stuff, as they may no longer apply.
-        cleanUpAllBlast();
+        cleanUpGraphSearch();
         resetNodeContiguityStatus();
         resetAllNodeColours();
     }
@@ -2926,17 +2908,17 @@ void MainWindow::mergeAllPossible()
 }
 
 
-void MainWindow::cleanUpAllBlast() {
-    if (m_blastSearchDialog) {
-        auto *search = m_blastSearchDialog->search();
+void MainWindow::cleanUpGraphSearch() {
+    if (m_graphSearchDialog) {
+        auto *search = m_graphSearchDialog->search();
         search->cleanUp();
         g_annotationsManager->removeGroupByName(search->annotationGroupName());
     }
-    ui->blastQueryComboBox->clear();
+    ui->queryComboBox->clear();
 
-    if (m_blastSearchDialog) {
-        delete m_blastSearchDialog;
-        m_blastSearchDialog = nullptr;
+    if (m_graphSearchDialog) {
+        delete m_graphSearchDialog;
+        m_graphSearchDialog = nullptr;
     }
 }
 
@@ -2957,7 +2939,7 @@ void MainWindow::changeNodeName()
     {
         g_assemblyGraph->changeNodeName(oldName, changeNodeNameDialog.getNewName());
         selectionChanged();
-        cleanUpAllBlast();
+        cleanUpGraphSearch();
     }
 }
 

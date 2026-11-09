@@ -23,6 +23,7 @@
 #include "scinot.h"
 #include "colormap.h"
 #include "graph/graphscope.h"
+#include "graphsearch/graphsearch.h"
 
 // FIXME: This needs to be properly factored out
 #include "graph/nodecolorer.h"
@@ -118,7 +119,7 @@ public:
     bool arrowheadsInSingleMode;
     FloatSetting textOutlineThickness;
 
-    int blastRainbowPartsPerQuery;
+    int rainbowPartsPerQuery;
 
     GraphScope graphScope;
     IntSetting nodeDistance;
@@ -126,7 +127,10 @@ public:
     QString startingNodes;
     QString startingPaths;
     QString startingWalks;
-    QString blastQueryFilename;
+    QString queryFilename;
+    search::GraphSearchKind graphSearcher = search::BLAST;
+    // True when CLI --scope aroundblast was used (compat alias; requires BLAST).
+    bool aroundBlastScopeAlias = false;
     QString csvFilename;
     QString unnamedQueryDefaultName;
     QString blastAnnotationGroupName;
@@ -199,8 +203,8 @@ public:
     int maxAutoFindEdgeOverlap;
 
     //These control how Bandage finds the best path in the graph to represent
-    //each BLAST query.  Some of these settings can be turned on and off and
-    //therefore have a corresponding bool value.
+    //each query after a graph search.  Some of these settings can be turned on
+    //and off and therefore have a corresponding bool value.
     IntSetting maxHitsForQueryPath;
     IntSetting maxQueryPathNodes;
     FloatSetting minQueryCoveredByPath;
@@ -212,17 +216,17 @@ public:
     IntSetting minLengthBaseDiscrepancy;
     IntSetting maxLengthBaseDiscrepancy;
 
-    //This holds the BLAST search parameters that a user can change before
-    //running a BLAST search.
-    QString blastSearchParameters;
+    // Extra parameters passed to the active graph searcher.
+    QString searchParameters;
 
-    //These are the optional BLAST hit filters: whether they are used and
-    //what their values are.
-    IntSetting blastAlignmentLengthFilter;
-    FloatSetting blastQueryCoverageFilter;
-    FloatSetting blastIdentityFilter;
-    SciNotSetting blastEValueFilter;
-    FloatSetting blastBitScoreFilter;
+    // Optional query-hit filters. Not all apply to every searcher:
+    // alignment length / query coverage are used by BLAST, Minimap2, and
+    // HMMER; identity is BLAST-only; e-value and bit score are used by BLAST and HMMER.
+    IntSetting alignmentLengthFilter;
+    FloatSetting queryCoverageFilter;
+    FloatSetting identityFilter;
+    SciNotSetting evalueFilter;
+    FloatSetting bitScoreFilter;
 
     //These are used for the 'Depth range' graph scope.
     FloatSetting minDepthRange;
@@ -231,9 +235,9 @@ public:
     //This controls annotations drawing.
     AnnotationSettings annotationsSettings;
 
-    // This is needed for backward compatibility to support selecting blast colors from CLI.
-    // To be removed when general approach will be implemented.
-    AnnotationSetting defaultBlastAnnotationSetting;
+    // Backward compatibility for selecting query-hit annotation defaults from CLI (--blasthits).
+    // To be removed when a general approach is implemented.
+    AnnotationSetting defaultQueryHitAnnotationSetting;
 };
 
 #endif // SETTINGS_H

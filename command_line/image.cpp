@@ -21,7 +21,7 @@
 
 #include "graph/assemblygraph.h"
 
-#include "graphsearch/blast/blastsearch.h"
+#include "graphsearch/graphsearch.h"
 
 #include "program/globals.h"
 #include "program/settings.h"
@@ -88,22 +88,22 @@ int handleImageCmd(QApplication *app,
     // is no viewport.
     g_settings->positionTextNodeCentre = true;
 
-    // The zoom level needs to be set so rainbow-style BLAST hits are rendered
+    // The zoom level needs to be set so rainbow-style query hits are rendered
     // properly.
     g_absoluteZoom = 10.0;
 
     if (cli.count("--query")) {
-        if (!g_blastSearch->ready()) {
-            err << g_blastSearch->lastError() << Qt::endl;
+        if (!g_graphSearch->ready()) {
+            err << g_graphSearch->lastError() << Qt::endl;
             return 1;
         }
 
-        QString blastError = g_blastSearch->doAutoGraphSearch(*g_assemblyGraph,
-                                                              g_settings->blastQueryFilename,
+        QString searchError = g_graphSearch->doAutoGraphSearch(*g_assemblyGraph,
+                                                              g_settings->queryFilename,
                                                               false, /* include paths */
-                                                              g_settings->blastSearchParameters);
-        if (!blastError.isEmpty()) {
-            err << blastError << Qt::endl;
+                                                              g_settings->searchParameters);
+        if (!searchError.isEmpty()) {
+            err << searchError << Qt::endl;
             return 1;
         }
     }
@@ -113,7 +113,7 @@ int handleImageCmd(QApplication *app,
     auto scope = graph::scope(g_settings->graphScope,
                               g_settings->startingNodes,
                               g_settings->minDepthRange, g_settings->maxDepthRange,
-                              &g_blastSearch->queries(), "all",
+                              &g_graphSearch->queries(), "all",
                               g_settings->startingPaths, g_settings->nodeDistance,
                               g_settings->startingWalks);
     std::vector<DeBruijnNode *> startingNodes = graph::getStartingNodes(&errorTitle, &errorMessage,

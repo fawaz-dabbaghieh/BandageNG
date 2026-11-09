@@ -18,14 +18,33 @@
 
 #include "annotationsmanager.h"
 
+#include "graph/debruijnnode.h"
 #include "graphsearch/query.h"
 #include "program/settings.h"
 
-AnnotationGroup &AnnotationsManager::createAnnotationGroup(QString name) {
-    if (name == g_settings->blastAnnotationGroupName) {
-        // To be removed when we can set up annotations from CLI properly.
-        return createAnnotationGroup(name, g_settings->defaultBlastAnnotationSetting);
+std::vector<DeBruijnNode *> AnnotationGroup::getNodesWithAnnotations(bool doubleMode) const {
+    std::vector<DeBruijnNode *> result;
+
+    for (const auto &[node, annotations] : annotationMap) {
+        if (annotations.empty())
+            continue;
+
+        if (doubleMode) {
+            result.push_back(const_cast<DeBruijnNode *>(node));
+            continue;
+        }
+
+        // Prefer the canonical map entry when both strands are annotated.
+        DeBruijnNode *canonical = node->getCanonical();
+        if (node != canonical && !getAnnotations(canonical).empty())
+            continue;
+        result.push_back(canonical);
     }
+
+    return result;
+}
+
+AnnotationGroup &AnnotationsManager::createAnnotationGroup(QString name) {
     return createAnnotationGroup(name, AnnotationSetting());
 }
 
@@ -84,8 +103,9 @@ const AnnotationGroup *AnnotationsManager::findGroupById(AnnotationGroupId id) c
 }
 
 void AnnotationsManager::updateGroupFromHits(const QString &name, const std::vector<search::Query *> &queries) {
-    // Preserve annotation settings, if they existed
-    AnnotationSetting groupSettings;
+    // Prefer existing group settings; otherwise use query-hit defaults
+    // (e.g. --blasthits) for whatever searcher created this group.
+    AnnotationSetting groupSettings = g_settings->defaultQueryHitAnnotationSetting;
     if (const auto *group = findGroupByName(name))
         groupSettings = g_settings->annotationsSettings[group->id];
 
@@ -94,7 +114,7 @@ void AnnotationsManager::updateGroupFromHits(const QString &name, const std::vec
     if (queries.empty())
         return;
 
-    auto &group = createAnnotationGroup(name);
+    auto &group = createAnnotationGroup(name, groupSettings);
     for (auto *query: queries) {
         for (const auto &hit: query->getHits()) {
             auto &annotation = group.annotationMap[hit->m_node].emplace_back(
@@ -103,12 +123,10 @@ void AnnotationsManager::updateGroupFromHits(const QString &name, const std::vec
                             hit->m_nodeEnd,
                             query->getName().toStdString()));
             annotation->addView(std::make_unique<SolidView>(1.0, query->getColour()));
-            annotation->addView(std::make_unique<RainbowBlastHitView>(hit->queryStartFraction(),
-                                                                      hit->queryEndFraction()));
+            annotation->addView(std::make_unique<RainbowHitView>(hit->queryStartFraction(),
+                                                                hit->queryEndFraction()));
         }
     }
-
-    g_settings->annotationsSettings[group.id] = groupSettings;
 
     emit annotationGroupsUpdated();
 }

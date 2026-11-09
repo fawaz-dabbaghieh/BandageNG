@@ -88,29 +88,29 @@ GraphSearchDialog::GraphSearchDialog(QWidget *parent, const QString& autoQuery)
     setWindowFlags(windowFlags() | Qt::Tool);
 
     m_queriesListModel = new QueriesListModel(m_graphSearch->queries(),
-                                              ui->blastQueriesTable);
-    auto *proxyQModel = new QSortFilterProxyModel(ui->blastQueriesTable);
+                                              ui->queriesTable);
+    auto *proxyQModel = new QSortFilterProxyModel(ui->queriesTable);
     proxyQModel->setSourceModel(m_queriesListModel);
-    ui->blastQueriesTable->setModel(proxyQModel);
-    ui->blastQueriesTable->setSortingEnabled(true);
+    ui->queriesTable->setModel(proxyQModel);
+    ui->queriesTable->setSortingEnabled(true);
 
-    auto *queryPathsDelegate = new PathButtonDelegate(ui->blastQueriesTable);
-    ui->blastQueriesTable->setItemDelegateForColumn(int(QueriesHitColumns::Paths),
+    auto *queryPathsDelegate = new PathButtonDelegate(ui->queriesTable);
+    ui->queriesTable->setItemDelegateForColumn(int(QueriesHitColumns::Paths),
                                                     queryPathsDelegate);
     connect(queryPathsDelegate, &PathButtonDelegate::queryPathSelectionChanged,
             [this] { emit queryPathSelectionChanged(); });
 
-    m_hitsListModel = new HitsListModel(m_graphSearch->queries(), ui->blastHitsTable);
-    auto *proxyHModel = new QSortFilterProxyModel(ui->blastHitsTable);
+    m_hitsListModel = new HitsListModel(m_graphSearch->queries(), ui->hitsTable);
+    auto *proxyHModel = new QSortFilterProxyModel(ui->hitsTable);
     proxyHModel->setSourceModel(m_hitsListModel);
-    ui->blastHitsTable->setModel(proxyHModel);
-    ui->blastHitsTable->setSortingEnabled(true);
+    ui->hitsTable->setModel(proxyHModel);
+    ui->hitsTable->setSortingEnabled(true);
 
     setFilterText();
     setUiCaptions();
 
     // Load any previous parameters the user might have entered when previously using this dialog.
-    ui->parametersLineEdit->setText(g_settings->blastSearchParameters);
+    ui->parametersLineEdit->setText(g_settings->searchParameters);
 
     // If the dialog is given an autoQuery parameter, then it will
     // carry out the entire process on its own.
@@ -124,11 +124,11 @@ GraphSearchDialog::GraphSearchDialog(QWidget *parent, const QString& autoQuery)
         return;
     }
 
-    // If a BLAST database already exists, move to step 2.
+    // If a search database already exists, move to step 2.
     QFile databaseFile(m_graphSearch->temporaryDir().filePath("all_nodes.fasta"));
     if (databaseFile.exists())
         setUiStep(GRAPH_DB_BUILT_BUT_NO_QUERIES);
-    //If there isn't a BLAST database, clear the entire temporary directory
+    //If there isn't a search database, clear the entire temporary directory
     //and move to step 1.
     else {
         m_graphSearch->emptyTempDirectory();
@@ -147,21 +147,23 @@ GraphSearchDialog::GraphSearchDialog(QWidget *parent, const QString& autoQuery)
         setUiStep(GRAPH_SEARCH_COMPLETE);
     }
 
-    connect(ui->buildBlastDatabaseButton, SIGNAL(clicked()), this, SLOT(buildGraphDatabaseInThread()));
+    connect(ui->buildDatabaseButton, SIGNAL(clicked()), this, SLOT(buildGraphDatabaseInThread()));
     connect(ui->loadQueriesFromFastaButton, SIGNAL(clicked()), this, SLOT(loadQueriesFromFileButtonClicked()));
     connect(ui->enterQueryManuallyButton, SIGNAL(clicked()), this, SLOT(enterQueryManually()));
     connect(ui->clearAllQueriesButton, SIGNAL(clicked()), this, SLOT(clearAllQueries()));
     connect(ui->clearSelectedQueriesButton, SIGNAL(clicked(bool)), this, SLOT(clearSelectedQueries()));
-    connect(ui->runBlastSearchButton, SIGNAL(clicked()), this, SLOT(runGraphSearchesInThread()));
+    connect(ui->deselectAllShownButton, SIGNAL(clicked()), this, SLOT(deselectAllShownQueries()));
+    connect(ui->selectAllShownButton, SIGNAL(clicked()), this, SLOT(selectAllShownQueries()));
+    connect(ui->runSearchButton, SIGNAL(clicked()), this, SLOT(runGraphSearchesInThread()));
 
-    connect(ui->blastQueriesTable->selectionModel(),
+    connect(ui->queriesTable->selectionModel(),
         &QItemSelectionModel::selectionChanged,
         [this]() {
-            auto *select = ui->blastQueriesTable->selectionModel();
+            auto *select = ui->queriesTable->selectionModel();
             ui->clearSelectedQueriesButton->setEnabled(select->hasSelection());
         });
 
-    connect(ui->blastQueriesTable,
+    connect(ui->queriesTable,
             &QTableView::clicked,
             m_queriesListModel,
             [this](const QModelIndex &index) {
@@ -187,17 +189,12 @@ GraphSearchDialog::GraphSearchDialog(QWidget *parent, const QString& autoQuery)
 
     connect(m_queriesListModel, &QueriesListModel::dataChanged,
             [this]() {
+                // Hit row colours / grey-out depend on Query show state and colour.
+                m_hitsListModel->refresh();
                 emit changed();
             });
 
-    // This is weird: we need to propagate data changes to proxies
-    connect(m_queriesListModel, &QueriesListModel::dataChanged,
-            [proxyHModel, proxyQModel](const QModelIndex &topLeft, const QModelIndex &bottomRight) {
-                emit proxyQModel->dataChanged(proxyQModel->mapFromSource(topLeft), proxyQModel->mapFromSource(bottomRight));
-                emit proxyHModel->dataChanged(QModelIndex(), QModelIndex());
-            });
-
-    connect(ui->blastFiltersButton, SIGNAL(clicked(bool)), this, SLOT(openFiltersDialog()));
+    connect(ui->filtersButton, SIGNAL(clicked(bool)), this, SLOT(openFiltersDialog()));
     connect(ui->searcherComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(searcherChanged()));
 }
 
@@ -225,8 +222,8 @@ void GraphSearchDialog::fillTablesAfterGraphSearch() {
 void GraphSearchDialog::updateTables() {
     m_queriesListModel->update();
     m_hitsListModel->update(m_graphSearch->queries());
-    ui->blastQueriesTable->resizeColumnsToContents();
-    ui->blastHitsTable->resizeColumnsToContents();
+    ui->queriesTable->resizeColumnsToContents();
+    ui->hitsTable->resizeColumnsToContents();
 }
 
 void GraphSearchDialog::buildGraphDatabaseInThread() {
@@ -327,7 +324,7 @@ void GraphSearchDialog::clearAllQueries() {
 
 void GraphSearchDialog::clearSelectedQueries() {
     // Use the table selection to figure out which queries are to be removed.
-    QItemSelectionModel *select = ui->blastQueriesTable->selectionModel();
+    QItemSelectionModel *select = ui->queriesTable->selectionModel();
     QModelIndexList selection = select->selectedIndexes();
 
     if (selection.size() == m_queriesListModel->m_queries.get().getQueryCount()) {
@@ -343,6 +340,14 @@ void GraphSearchDialog::clearSelectedQueries() {
     updateTables();
 
     emit changed();
+}
+
+void GraphSearchDialog::deselectAllShownQueries() {
+    m_queriesListModel->setAllShown(false);
+}
+
+void GraphSearchDialog::selectAllShownQueries() {
+    m_queriesListModel->setAllShown(true);
 }
 
 void GraphSearchDialog::runGraphSearchesInThread() {
@@ -381,7 +386,7 @@ void GraphSearchDialog::graphSearchFinished(const QString& error) {
         setUiStep(READY_FOR_GRAPH_SEARCH);
     } else {
         fillTablesAfterGraphSearch();
-        g_settings->blastSearchParameters = ui->parametersLineEdit->text().simplified();
+        g_settings->searchParameters = ui->parametersLineEdit->text().simplified();
         setUiStep(GRAPH_SEARCH_COMPLETE);
     }
 
@@ -395,177 +400,201 @@ void GraphSearchDialog::setUiStep(SearchUiState uiState) {
     switch (uiState) {
     case GRAPH_DB_NOT_YET_BUILT:
         ui->step1Label->setEnabled(true);
-        ui->buildBlastDatabaseButton->setEnabled(true);
+        ui->buildDatabaseButton->setEnabled(true);
         ui->step2Label->setEnabled(false);
         ui->loadQueriesFromFastaButton->setEnabled(false);
         ui->enterQueryManuallyButton->setEnabled(false);
-        ui->blastQueriesTable->setEnabled(false);
-        ui->blastQueriesTableInfoText->setEnabled(false);
+        ui->queriesTable->setEnabled(false);
+        ui->queriesTableInfoText->setEnabled(false);
         ui->step3Label->setEnabled(false);
         ui->parametersLabel->setEnabled(false);
         ui->parametersLineEdit->setEnabled(false);
-        ui->runBlastSearchButton->setEnabled(false);
+        ui->runSearchButton->setEnabled(false);
         ui->clearAllQueriesButton->setEnabled(false);
         ui->clearSelectedQueriesButton->setEnabled(false);
+        ui->deselectAllShownButton->setEnabled(false);
+        ui->selectAllShownButton->setEnabled(false);
         ui->hitsLabel->setEnabled(false);
         ui->step1TickLabel->setPixmap(QPixmap());
         ui->step2TickLabel->setPixmap(QPixmap());
         ui->step3TickLabel->setPixmap(QPixmap());
-        ui->buildBlastDatabaseInfoText->setEnabled(true);
+        ui->buildDatabaseInfoText->setEnabled(true);
         ui->loadQueriesFromFastaInfoText->setEnabled(false);
         ui->enterQueryManuallyInfoText->setEnabled(false);
         ui->clearAllQueriesInfoText->setEnabled(false);
         ui->clearSelectedQueriesInfoText->setEnabled(false);
-        ui->blastHitsTable->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(false);
-        ui->blastHitsTableInfoText->setEnabled(false);
+        ui->deselectAllShownInfoText->setEnabled(false);
+        ui->selectAllShownInfoText->setEnabled(false);
+        ui->hitsTable->setEnabled(false);
+        ui->graphSearchWidget->setEnabled(false);
+        ui->hitsTableInfoText->setEnabled(false);
         ui->includeGFAPaths->setEnabled(true);
         ui->includeGFAPathsInfoText->setEnabled(true);
         break;
 
     case GRAPH_DB_BUILD_IN_PROGRESS:
         ui->step1Label->setEnabled(true);
-        ui->buildBlastDatabaseButton->setEnabled(false);
+        ui->buildDatabaseButton->setEnabled(false);
         ui->step2Label->setEnabled(false);
         ui->loadQueriesFromFastaButton->setEnabled(false);
         ui->enterQueryManuallyButton->setEnabled(false);
-        ui->blastQueriesTable->setEnabled(false);
-        ui->blastQueriesTableInfoText->setEnabled(false);
+        ui->queriesTable->setEnabled(false);
+        ui->queriesTableInfoText->setEnabled(false);
         ui->step3Label->setEnabled(false);
         ui->parametersLabel->setEnabled(false);
         ui->parametersLineEdit->setEnabled(false);
-        ui->runBlastSearchButton->setEnabled(false);
+        ui->runSearchButton->setEnabled(false);
         ui->clearAllQueriesButton->setEnabled(false);
         ui->clearSelectedQueriesButton->setEnabled(false);
+        ui->deselectAllShownButton->setEnabled(false);
+        ui->selectAllShownButton->setEnabled(false);
         ui->hitsLabel->setEnabled(false);
         ui->step1TickLabel->setPixmap(QPixmap());
         ui->step2TickLabel->setPixmap(QPixmap());
         ui->step3TickLabel->setPixmap(QPixmap());
-        ui->buildBlastDatabaseInfoText->setEnabled(false);
+        ui->buildDatabaseInfoText->setEnabled(false);
         ui->loadQueriesFromFastaInfoText->setEnabled(false);
         ui->enterQueryManuallyInfoText->setEnabled(false);
         ui->clearAllQueriesInfoText->setEnabled(false);
         ui->clearSelectedQueriesInfoText->setEnabled(false);
-        ui->blastHitsTable->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(false);
-        ui->blastHitsTableInfoText->setEnabled(false);
+        ui->deselectAllShownInfoText->setEnabled(false);
+        ui->selectAllShownInfoText->setEnabled(false);
+        ui->hitsTable->setEnabled(false);
+        ui->graphSearchWidget->setEnabled(false);
+        ui->hitsTableInfoText->setEnabled(false);
         ui->includeGFAPaths->setEnabled(true);
         ui->includeGFAPathsInfoText->setEnabled(true);
         break;
 
     case GRAPH_DB_BUILT_BUT_NO_QUERIES:
         ui->step1Label->setEnabled(true);
-        ui->buildBlastDatabaseButton->setEnabled(false);
+        ui->buildDatabaseButton->setEnabled(false);
         ui->step2Label->setEnabled(true);
         ui->loadQueriesFromFastaButton->setEnabled(true);
         ui->enterQueryManuallyButton->setEnabled(m_graphSearch->allowManualQueries());
-        ui->blastQueriesTable->setEnabled(true);
-        ui->blastQueriesTableInfoText->setEnabled(true);
+        ui->queriesTable->setEnabled(true);
+        ui->queriesTableInfoText->setEnabled(true);
         ui->step3Label->setEnabled(false);
         ui->parametersLabel->setEnabled(false);
         ui->parametersLineEdit->setEnabled(false);
-        ui->runBlastSearchButton->setEnabled(false);
+        ui->runSearchButton->setEnabled(false);
         ui->clearAllQueriesButton->setEnabled(false);
         ui->clearAllQueriesButton->setEnabled(false);
+        ui->deselectAllShownButton->setEnabled(false);
+        ui->selectAllShownButton->setEnabled(false);
         ui->hitsLabel->setEnabled(false);
         ui->step1TickLabel->setPixmap(tick);
         ui->step2TickLabel->setPixmap(QPixmap());
         ui->step3TickLabel->setPixmap(QPixmap());
-        ui->buildBlastDatabaseInfoText->setEnabled(true);
+        ui->buildDatabaseInfoText->setEnabled(true);
         ui->loadQueriesFromFastaInfoText->setEnabled(true);
         ui->enterQueryManuallyInfoText->setEnabled(true);
         ui->clearSelectedQueriesInfoText->setEnabled(false);
         ui->clearSelectedQueriesInfoText->setEnabled(false);
-        ui->blastHitsTable->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(false);
-        ui->blastHitsTableInfoText->setEnabled(false);
+        ui->deselectAllShownInfoText->setEnabled(false);
+        ui->selectAllShownInfoText->setEnabled(false);
+        ui->hitsTable->setEnabled(false);
+        ui->graphSearchWidget->setEnabled(false);
+        ui->hitsTableInfoText->setEnabled(false);
         ui->includeGFAPaths->setEnabled(false);
         ui->includeGFAPathsInfoText->setEnabled(false);
         break;
 
     case READY_FOR_GRAPH_SEARCH:
         ui->step1Label->setEnabled(true);
-        ui->buildBlastDatabaseButton->setEnabled(false);
+        ui->buildDatabaseButton->setEnabled(false);
         ui->step2Label->setEnabled(true);
         ui->loadQueriesFromFastaButton->setEnabled(true);
         ui->enterQueryManuallyButton->setEnabled(m_graphSearch->allowManualQueries());
-        ui->blastQueriesTable->setEnabled(true);
-        ui->blastQueriesTableInfoText->setEnabled(true);
+        ui->queriesTable->setEnabled(true);
+        ui->queriesTableInfoText->setEnabled(true);
         ui->step3Label->setEnabled(true);
         ui->parametersLabel->setEnabled(true);
         ui->parametersLineEdit->setEnabled(true);
-        ui->runBlastSearchButton->setEnabled(true);
+        ui->runSearchButton->setEnabled(true);
         ui->clearAllQueriesButton->setEnabled(true);
+        ui->deselectAllShownButton->setEnabled(true);
+        ui->selectAllShownButton->setEnabled(true);
         ui->hitsLabel->setEnabled(false);
         ui->step1TickLabel->setPixmap(tick);
         ui->step2TickLabel->setPixmap(tick);
         ui->step3TickLabel->setPixmap(QPixmap());
-        ui->buildBlastDatabaseInfoText->setEnabled(true);
+        ui->buildDatabaseInfoText->setEnabled(true);
         ui->loadQueriesFromFastaInfoText->setEnabled(true);
         ui->enterQueryManuallyInfoText->setEnabled(true);
         ui->clearAllQueriesInfoText->setEnabled(true);
         ui->clearSelectedQueriesInfoText->setEnabled(true);
-        ui->blastHitsTable->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(true);
-        ui->blastHitsTableInfoText->setEnabled(false);
+        ui->deselectAllShownInfoText->setEnabled(true);
+        ui->selectAllShownInfoText->setEnabled(true);
+        ui->hitsTable->setEnabled(false);
+        ui->graphSearchWidget->setEnabled(true);
+        ui->hitsTableInfoText->setEnabled(false);
         ui->includeGFAPaths->setEnabled(false);
         ui->includeGFAPathsInfoText->setEnabled(false);
         break;
 
     case GRAPH_SEARCH_IN_PROGRESS:
         ui->step1Label->setEnabled(true);
-        ui->buildBlastDatabaseButton->setEnabled(false);
+        ui->buildDatabaseButton->setEnabled(false);
         ui->step2Label->setEnabled(true);
         ui->loadQueriesFromFastaButton->setEnabled(true);
         ui->enterQueryManuallyButton->setEnabled(m_graphSearch->allowManualQueries());
-        ui->blastQueriesTable->setEnabled(true);
-        ui->blastQueriesTableInfoText->setEnabled(true);
+        ui->queriesTable->setEnabled(true);
+        ui->queriesTableInfoText->setEnabled(true);
         ui->step3Label->setEnabled(true);
         ui->parametersLabel->setEnabled(true);
         ui->parametersLineEdit->setEnabled(true);
-        ui->runBlastSearchButton->setEnabled(false);
+        ui->runSearchButton->setEnabled(false);
         ui->clearAllQueriesButton->setEnabled(true);
+        ui->deselectAllShownButton->setEnabled(true);
+        ui->selectAllShownButton->setEnabled(true);
         ui->hitsLabel->setEnabled(false);
         ui->step1TickLabel->setPixmap(tick);
         ui->step2TickLabel->setPixmap(tick);
         ui->step3TickLabel->setPixmap(QPixmap());
-        ui->buildBlastDatabaseInfoText->setEnabled(true);
+        ui->buildDatabaseInfoText->setEnabled(true);
         ui->loadQueriesFromFastaInfoText->setEnabled(true);
         ui->enterQueryManuallyInfoText->setEnabled(true);
         ui->clearAllQueriesInfoText->setEnabled(true);
         ui->clearSelectedQueriesInfoText->setEnabled(true);
-        ui->blastHitsTable->setEnabled(false);
-        ui->blastSearchWidget->setEnabled(true);
-        ui->blastHitsTableInfoText->setEnabled(false);
+        ui->deselectAllShownInfoText->setEnabled(true);
+        ui->selectAllShownInfoText->setEnabled(true);
+        ui->hitsTable->setEnabled(false);
+        ui->graphSearchWidget->setEnabled(true);
+        ui->hitsTableInfoText->setEnabled(false);
         ui->includeGFAPaths->setEnabled(false);
         ui->includeGFAPathsInfoText->setEnabled(false);
         break;
 
     case GRAPH_SEARCH_COMPLETE:
         ui->step1Label->setEnabled(true);
-        ui->buildBlastDatabaseButton->setEnabled(false);
+        ui->buildDatabaseButton->setEnabled(false);
         ui->step2Label->setEnabled(true);
         ui->loadQueriesFromFastaButton->setEnabled(true);
         ui->enterQueryManuallyButton->setEnabled(m_graphSearch->allowManualQueries());
-        ui->blastQueriesTable->setEnabled(true);
-        ui->blastQueriesTableInfoText->setEnabled(true);
+        ui->queriesTable->setEnabled(true);
+        ui->queriesTableInfoText->setEnabled(true);
         ui->step3Label->setEnabled(true);
         ui->parametersLabel->setEnabled(true);
         ui->parametersLineEdit->setEnabled(true);
-        ui->runBlastSearchButton->setEnabled(true);
+        ui->runSearchButton->setEnabled(true);
         ui->clearAllQueriesButton->setEnabled(true);
+        ui->deselectAllShownButton->setEnabled(true);
+        ui->selectAllShownButton->setEnabled(true);
         ui->hitsLabel->setEnabled(true);
         ui->step1TickLabel->setPixmap(tick);
         ui->step2TickLabel->setPixmap(tick);
         ui->step3TickLabel->setPixmap(tick);
-        ui->buildBlastDatabaseInfoText->setEnabled(true);
+        ui->buildDatabaseInfoText->setEnabled(true);
         ui->loadQueriesFromFastaInfoText->setEnabled(true);
         ui->enterQueryManuallyInfoText->setEnabled(true);
         ui->clearAllQueriesInfoText->setEnabled(true);
         ui->clearSelectedQueriesInfoText->setEnabled(true);
-        ui->blastHitsTable->setEnabled(true);
-        ui->blastSearchWidget->setEnabled(true);
-        ui->blastHitsTableInfoText->setEnabled(true);
+        ui->deselectAllShownInfoText->setEnabled(true);
+        ui->selectAllShownInfoText->setEnabled(true);
+        ui->hitsTable->setEnabled(true);
+        ui->graphSearchWidget->setEnabled(true);
+        ui->hitsTableInfoText->setEnabled(true);
         ui->includeGFAPaths->setEnabled(false);
         ui->includeGFAPathsInfoText->setEnabled(false);
         break;
@@ -584,7 +613,7 @@ void GraphSearchDialog::openFiltersDialog() {
 }
 
 void GraphSearchDialog::setFilterText() {
-    ui->blastHitFiltersLabel->setText("Current filters: " + HitFiltersDialog::getFilterText());
+    ui->hitFiltersLabel->setText("Current filters: " + HitFiltersDialog::getFilterText());
 }
 
 void GraphSearchDialog::setUiCaptions() {
@@ -592,9 +621,9 @@ void GraphSearchDialog::setUiCaptions() {
     ui->step2Label->setText(QString("<b>Step 2:</b> enter %1 queries").arg(m_graphSearch->name()));
     ui->step3Label->setText(QString("<b>Step 3:</b> run %1 search").arg(m_graphSearch->name()));
     ui->loadQueriesFromFastaButton->setText(QString("Load from %1 file").arg(m_graphSearch->queryFormat()));
-    ui->buildBlastDatabaseButton->setText(QString("Build %1 database").arg(m_graphSearch->name()));
-    ui->blastFiltersButton->setText(QString("Set %1 hit filters").arg(m_graphSearch->name()));
-    ui->runBlastSearchButton->setText(QString("Run %1 search").arg(m_graphSearch->name()));
+    ui->buildDatabaseButton->setText(QString("Build %1 database").arg(m_graphSearch->name()));
+    ui->filtersButton->setText(QString("Set %1 hit filters").arg(m_graphSearch->name()));
+    ui->runSearchButton->setText(QString("Run %1 search").arg(m_graphSearch->name()));
 }
 
 void GraphSearchDialog::searcherChanged() {
@@ -737,7 +766,9 @@ bool QueriesListModel::setData(const QModelIndex &index, const QVariant &value, 
     auto column = QueriesHitColumns(index.column());
     if (role == Qt::CheckStateRole && column == QueriesHitColumns::Show) { // Implement query shown checkbox
         query->setShown(value.toBool());
-        emit dataChanged(index, QModelIndex()); // Here we need to refresh the whole row
+        // Refresh the whole row (checkbox + grey background on other columns).
+        emit dataChanged(index.sibling(index.row(), 0),
+                         index.sibling(index.row(), columnCount(QModelIndex()) - 1));
         return true;
     } else if (role == Qt::EditRole && column == QueriesHitColumns::QueryName) { // Change query name
         QString newName = value.toString();
@@ -756,6 +787,20 @@ Query *QueriesListModel::query(const QModelIndex &index) const {
         return nullptr;
 
     return m_queries.get().query(index.row());
+}
+
+void QueriesListModel::setAllShown(bool shown) {
+    auto &queries = m_queries.get();
+    int count = int(queries.getQueryCount());
+    if (count == 0)
+        return;
+
+    for (auto *query : queries)
+        query->setShown(shown);
+
+    // Refresh Show checkboxes and grey backgrounds for every row.
+    emit dataChanged(index(0, 0),
+                     index(count - 1, columnCount(QModelIndex()) - 1));
 }
 
 void QueriesListModel::setColor(const QModelIndex &index, QColor color) {
@@ -929,6 +974,14 @@ QVariant HitsListModel::headerData(int section, Qt::Orientation orientation, int
         case HitsColumns::BitScore:
             return "Bit\nscore";
     }
+}
+
+void HitsListModel::refresh() {
+    if (m_hits.empty())
+        return;
+
+    emit dataChanged(index(0, 0),
+                     index(rowCount(QModelIndex()) - 1, columnCount(QModelIndex()) - 1));
 }
 
 void HitsListModel::update(Queries &queries) {
