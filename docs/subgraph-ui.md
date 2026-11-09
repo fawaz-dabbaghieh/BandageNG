@@ -40,7 +40,7 @@ replaces the current graph without reopening the file.
 ## Building
 
 gfaidx is downloaded automatically at configure time (CMake `FetchContent`),
-pinned to a release tarball (currently `v2.1.0`, checked by SHA-256), so a
+pinned to a release tarball (currently `v2.3.2`, checked by SHA-256), so a
 plain clone + build includes it - no separate gfaidx checkout needed.
 
 - **Developing gfaidx alongside Bandage-NG**: point the build at a local

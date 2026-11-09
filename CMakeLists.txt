@@ -134,8 +134,8 @@ if (BANDAGE_WITH_GFAIDX)
   # To build against a local gfaidx checkout instead: -DFETCHCONTENT_SOURCE_DIR_GFAIDX=<path>
   FetchContent_Declare(
       gfaidx
-      URL "https://github.com/fawaz-dabbaghieh/gfaidx/archive/refs/tags/v2.1.0.tar.gz"
-      URL_HASH SHA256=ff9836f7be3b35561ae322faea58efa2e04f09966635e6a50ee86001058ef588
+      URL "https://github.com/fawaz-dabbaghieh/gfaidx/archive/refs/tags/v2.3.2.tar.gz"
+      URL_HASH SHA256=a4ad534ff5c26e26614266c79d831137928cd9a199d2c4a6b2b48957c051841f
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE
       EXCLUDE_FROM_ALL
   )
