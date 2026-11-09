@@ -27,9 +27,27 @@ Bandage-NG is a GUI program that allows users to interact with the assembly grap
 
 ## Indexed graphs (gfaidx)
 
-Bandage-NG can open GFA files indexed with [gfaidx](https://github.com/fawaz-dabbaghieh/gfaidx) without loading the whole graph. When the selected file has gfaidx index files next to it, Bandage-NG lets you query a subgraph: the neighbourhood around one or more nodes, or a region of a path or walk. Only the result is loaded, so large pangenome graphs can be explored without loading them completely. To run another query on the same index, click "Re-query..." in the sidebar. You can also load the full graph from the query window.
+Bandage-NG can open GFA files indexed with [gfaidx](https://github.com/fawaz-dabbaghieh/gfaidx). gfaidx splits a graph into communities, stores it as a chunked gzip file and writes index files next to it. Bandage-NG uses the gfaidx C++ library to read only the part of the graph you ask for, so large graphs, such as pangenome graphs, can be explored without loading the whole file into memory.
 
-gfaidx is downloaded and built automatically with Bandage-NG (not available on Windows).
+Index a graph with gfaidx:
+
+```shell
+gfaidx index_gfa graph.gfa graph.indexed.gfa.gz
+```
+
+Then open `graph.indexed.gfa.gz` with "File > Load graph". If the index files are next to it, a query window opens instead of a full load:
+
+* **Subgraph**: load the neighbourhood around one or more nodes, up to a maximum number of nodes.
+* **Region**: load a region of a path or walk (P or W line), from a start to an end coordinate.
+* **Load full graph**: load the whole file, as for any other graph.
+
+After a query:
+
+* The result is loaded like any other graph. Click "Draw graph" to draw it.
+* "Re-query..." in the sidebar opens the query window again, to load another part of the same graph.
+* The "Graph information" panel shows the size of the complete graph and of the loaded subgraph.
+
+gfaidx is downloaded and built automatically with Bandage-NG. It is not available on Windows yet.
 
 ## Help
 
