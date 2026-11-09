@@ -59,6 +59,17 @@ namespace graph {
 
     QString describeQuery(const IndexQuery &query);
 
+    // Size of the complete indexed graph. Edges and total length come from the <file>.params summary
+    // that gfaidx 2.3 and later write next to the index, and are empty without it. Paths and walks come
+    // from .params or, without it, from the index's path list (empty if it has no .pdx).
+    struct IndexedGraphStats {
+        std::uint64_t nodes = 0;
+        std::optional<std::uint64_t> edges;
+        std::optional<std::uint64_t> totalLength;
+        std::optional<std::uint64_t> paths;
+        std::optional<std::uint64_t> walks;
+    };
+
     struct IndexQueryResult {
         std::shared_ptr<QTemporaryDir> workDir;  // owns gfaPath; deleted with the last copy
         QString gfaPath;
@@ -85,6 +96,7 @@ namespace graph {
         [[nodiscard]] std::uint64_t nodeCount() const;
         [[nodiscard]] std::uint32_t communityCount() const;
         [[nodiscard]] std::size_t pathCount() const;
+        [[nodiscard]] const IndexedGraphStats &graphStats() const;
         [[nodiscard]] bool hasPathIndex() const;
         [[nodiscard]] bool hasNodeLengths() const;
         [[nodiscard]] bool nodeExists(const QString &nodeId) const;

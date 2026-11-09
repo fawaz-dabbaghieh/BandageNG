@@ -100,6 +100,7 @@ private:
     void finishGraphLoad(const QString &fullFileName, bool customColours, bool customLabels);
     void displayGraphDetails();
     void clearGraphDetails();
+    void setIndexedGraphDetailsVisible(bool visible);
     void resetScene();
     void resetAllNodeColours();
     void layoutGraph();

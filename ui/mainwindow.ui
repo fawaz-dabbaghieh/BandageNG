@@ -106,8 +106,40 @@
               <property name="verticalSpacing">
                <number>0</number>
               </property>
+              <item row="0" column="0" colspan="2">
+               <widget class="QLabel" name="indexedGraphHeadingLabel">
+                <property name="font">
+                 <font>
+                  <italic>true</italic>
+                 </font>
+                </property>
+                <property name="toolTip">
+                 <string>Size of the complete graph, read from the gfaidx index. The numbers under &quot;Loaded subgraph&quot; describe only the part loaded by the last query.</string>
+                </property>
+                <property name="text">
+                 <string>Complete graph</string>
+                </property>
+               </widget>
+              </item>
               <item row="1" column="0">
-               <widget class="QLabel" name="label_6">
+               <widget class="QLabel" name="indexedNodesLabel">
+                <property name="text">
+                 <string>Nodes:</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLabel" name="indexedNodeCountLabel">
+                <property name="text">
+                 <string>0</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="indexedEdgesLabel">
                 <property name="text">
                  <string>Edges:</string>
                 </property>
@@ -116,15 +148,15 @@
                 </property>
                </widget>
               </item>
-              <item row="1" column="1">
-               <widget class="QLabel" name="edgeCountLabel">
+              <item row="2" column="1">
+               <widget class="QLabel" name="indexedEdgeCountLabel">
                 <property name="text">
                  <string>0</string>
                 </property>
                </widget>
               </item>
-              <item row="2" column="0">
-               <widget class="QLabel" name="label_6p">
+              <item row="3" column="0">
+               <widget class="QLabel" name="indexedPathsLabel">
                 <property name="text">
                  <string>Paths / Walks:</string>
                 </property>
@@ -133,15 +165,15 @@
                 </property>
                </widget>
               </item>
-              <item row="2" column="1">
-               <widget class="QLabel" name="pathAndWalkCountLabel">
+              <item row="3" column="1">
+               <widget class="QLabel" name="indexedPathAndWalkCountLabel">
                 <property name="text">
                  <string>0 / 0</string>
                 </property>
                </widget>
               </item>
               <item row="4" column="0">
-               <widget class="QLabel" name="label_8">
+               <widget class="QLabel" name="indexedLengthLabel">
                 <property name="text">
                  <string>Total length:</string>
                 </property>
@@ -151,26 +183,89 @@
                </widget>
               </item>
               <item row="4" column="1">
-               <widget class="QLabel" name="totalLengthLabel">
+               <widget class="QLabel" name="indexedTotalLengthLabel">
                 <property name="text">
                  <string>0</string>
                 </property>
                </widget>
               </item>
-              <item row="0" column="1">
-               <widget class="QLabel" name="nodeCountLabel">
+              <item row="5" column="0" colspan="2">
+               <widget class="QLabel" name="loadedSubgraphHeadingLabel">
+                <property name="font">
+                 <font>
+                  <italic>true</italic>
+                 </font>
+                </property>
                 <property name="text">
-                 <string>0</string>
+                 <string>Loaded subgraph</string>
                 </property>
                </widget>
               </item>
-              <item row="0" column="0">
+              <item row="6" column="0">
                <widget class="QLabel" name="label_2">
                 <property name="text">
                  <string>Nodes:</string>
                 </property>
                 <property name="alignment">
                  <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="1">
+               <widget class="QLabel" name="nodeCountLabel">
+                <property name="text">
+                 <string>0</string>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="0">
+               <widget class="QLabel" name="label_6">
+                <property name="text">
+                 <string>Edges:</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="1">
+               <widget class="QLabel" name="edgeCountLabel">
+                <property name="text">
+                 <string>0</string>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="0">
+               <widget class="QLabel" name="label_6p">
+                <property name="text">
+                 <string>Paths / Walks:</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="1">
+               <widget class="QLabel" name="pathAndWalkCountLabel">
+                <property name="text">
+                 <string>0 / 0</string>
+                </property>
+               </widget>
+              </item>
+              <item row="9" column="0">
+               <widget class="QLabel" name="label_8">
+                <property name="text">
+                 <string>Total length:</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="9" column="1">
+               <widget class="QLabel" name="totalLengthLabel">
+                <property name="text">
+                 <string>0</string>
                 </property>
                </widget>
               </item>

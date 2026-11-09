@@ -5,43 +5,20 @@ Working notes on where the indexed-graph-loading feature (see
 2026-09-16 after the first working end-to-end pass (detect -> summary dialog
 -> node-seeded subgraph load -> re-query) was confirmed working.
 
-## 1. gfaidx: a metadata sidecar (blocked on gfaidx-side work, not started)
+## 1. gfaidx: a metadata sidecar (done 2026-11-09)
 
-`gfaidx::IndexedGraph` currently only exposes `node_count()`, `community_count()`,
-and `paths()` cheaply. There's no global edge count, no total sequence length,
-no connected-component count - anything beyond those three requires either a
-full parse or isn't tracked at index time at all.
+gfaidx 2.3 writes `<file>.params`, a JSON summary with the segment, link, path,
+walk and path-step counts and the total sequence length (plus the index
+parameters and file sizes). `IndexedGraphSession::graphStats()` reads it.
+Connected-component count is not in it.
 
-Plan: `index_gfa` writes a new sidecar (JSON or similar - simple, human-readable,
-easy for BandageNG or any other consumer to read without linking against
-gfaidx's binary index-reading code) containing whole-graph metadata collected
-once at index-build time:
-- node count, edge count, path count, walk count
-- total sequence length (and/or total node length)
-- connected component count
-- whatever else turns out to be cheap to collect during indexing
+## 2. Dual stats display (done 2026-11-09)
 
-This is gfaidx-side work (index format decision) - the user is planning to
-implement this in gfaidx itself before BandageNG's side is revisited.
-BandageNG's job afterward is small: `IndexedGraphSession` reads the sidecar
-(a new method, e.g. `edgeCount()`, `totalLength()`, `componentCount()`) and
-the UI shows the real numbers instead of omitting edge count as it does now.
-
-## 2. Dual stats display (BandageNG-only, not started)
-
-Right now, loading a subgraph overwrites the graph-details panel with just
-the subgraph's stats - there's no indication the user is looking at a partial
-view. Once (1) above lands, show both concurrently, e.g. "3 / 1,250,000
-nodes", so the user always knows they're looking at a subgraph of size X out
-of an indexed graph of size Y. Needs:
-- keeping the index summary around after a subgraph load (currently
-  `IndexedGraphSession` is kept for re-querying, but its summary isn't
-  displayed once `finishGraphLoad()` overwrites the details panel with the
-  loaded AssemblyGraph's own stats)
-- a UI treatment for "X / Y" pairs in `displayGraphDetails()`
-
-Can be prototyped now with node/community/path counts even before edge count
-exists from (1), then extended once edge count is available.
+While a query result is loaded, the "Graph information" panel shows a "Complete
+graph" block (from the index and `.params`) above a "Loaded subgraph" block.
+The query window's summary shows the same numbers. See `subgraph-ui.md`. The
+CLI `info` command still shows only nodes, communities and paths/walks; it could
+use `graphStats()` too.
 
 ## 3. Region and path/walk queries (region queries done 2026-10-24)
 
@@ -109,7 +86,5 @@ Agreed 2026-10-24 to postpone. Notes for when it's picked up:
 
 ## Rough sequencing
 
-(1) is blocked on the user's own gfaidx work and can't start from the
-BandageNG side yet. (2) and (3) are independent of each other and of (1) for
-their node/path-count-only parts; (2) becomes fully useful once (1) lands.
+(1) and (2) are done. What is left of (3) and (4) is mostly gfaidx-side.
 No firm commitment on order yet - revisit this doc when resuming.

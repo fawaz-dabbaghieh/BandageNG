@@ -57,15 +57,26 @@ IndexedGraphDialog::IndexedGraphDialog(QWidget *parent,
         : QDialog(parent), m_session(std::move(session)), m_targets(m_session->regionTargets()) {
     setWindowTitle("Query indexed graph");
 
-    auto *summaryLabel = new QLabel(
-            QString("<b>%1</b><br>Indexed graph with %2 nodes, %3 communities and %4 paths/walks. "
-                    "Load part of it with a query, or load the complete graph.")
-                    .arg(QFileInfo(m_session->fileName()).fileName().toHtmlEscaped(),
-                         formatNumber(m_session->nodeCount()),
-                         formatNumber(m_session->communityCount()),
-                         formatNumber(m_targets.size())),
-            this);
-    summaryLabel->setWordWrap(true);
+    auto *fileLabel = new QLabel("<b>" + QFileInfo(m_session->fileName()).fileName().toHtmlEscaped() + "</b>", this);
+
+    // Size of the complete graph; edges and total length are only known from a gfaidx 2.3+ .params file.
+    const auto &stats = m_session->graphStats();
+    auto format = [](std::optional<std::uint64_t> count) {
+        return count ? formatNumber(*count) : QString("unknown");
+    };
+    auto *statsForm = new QFormLayout;
+    statsForm->addRow("Nodes:", new QLabel(format(stats.nodes), this));
+    statsForm->addRow("Edges:", new QLabel(format(stats.edges), this));
+    statsForm->addRow("Paths / Walks:",
+                      new QLabel(stats.paths ? format(stats.paths) + " / " + format(stats.walks) : "unknown", this));
+    statsForm->addRow("Total length:", new QLabel(format(stats.totalLength), this));
+    statsForm->addRow("Communities:", new QLabel(formatNumber(m_session->communityCount()), this));
+
+    QString summary = "Load part of it with a query, or load the complete graph.";
+    if (!stats.edges || !stats.totalLength)
+        summary.prepend("Edges and total length are read from the .params file that gfaidx 2.3 and later "
+                        "write next to the index; re-index the graph to see them. ");
+    auto *summaryLabel = descriptionLabel(summary);
 
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createSubgraphTab(), "Subgraph");
@@ -89,6 +100,8 @@ IndexedGraphDialog::IndexedGraphDialog(QWidget *parent,
     buttonBox->addButton(cancelButton, QDialogButtonBox::RejectRole);
 
     auto *layout = new QVBoxLayout(this);
+    layout->addWidget(fileLabel);
+    layout->addLayout(statsForm);
     layout->addWidget(summaryLabel);
     layout->addWidget(m_tabs);
     layout->addWidget(buttonBox);

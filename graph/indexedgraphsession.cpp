@@ -19,7 +19,10 @@
 
 #include <gfaidx/gfaidx.hpp>
 
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTemporaryDir>
 
@@ -33,6 +36,41 @@ namespace graph {
     namespace {
         QString toQString(std::string_view text) {
             return QString::fromUtf8(text.data(), qsizetype(text.size()));
+        }
+
+        IndexedGraphStats readGraphStats(const QString &fullFileName, const gfaidx::IndexedGraph &index) {
+            IndexedGraphStats stats;
+            stats.nodes = index.node_count();
+            if (index.capabilities().paths) {
+                std::uint64_t paths = 0, walks = 0;
+                for (const auto &path : index.paths())
+                    ++(path.record_type == 'W' ? walks : paths);
+                stats.paths = paths;
+                stats.walks = walks;
+            }
+
+            // The "graph" section of the .params JSON, e.g. {"segments": 2782249, "links": 3801658, ...}
+            QFile file(fullFileName + ".params");
+            if (!file.open(QIODevice::ReadOnly))
+                return stats;
+            const QJsonObject graph = QJsonDocument::fromJson(file.readAll()).object().value("graph").toObject();
+            auto count = [&graph](const char *key) -> std::optional<std::uint64_t> {
+                const QJsonValue value = graph.value(QLatin1String(key));
+                if (!value.isDouble() || value.toInteger(-1) < 0)
+                    return std::nullopt;
+                return std::uint64_t(value.toInteger());
+            };
+
+            // A summary left over from indexing a different graph to the same name is ignored.
+            if (count("segments") != stats.nodes)
+                return stats;
+            stats.edges = count("links");
+            stats.totalLength = count("total_sequence_bp");
+            if (auto paths = count("paths"), walks = count("walks"); paths && walks) {
+                stats.paths = paths;
+                stats.walks = walks;
+            }
+            return stats;
         }
     }
 
@@ -56,10 +94,12 @@ namespace graph {
     class IndexedGraphSession::Impl {
       public:
         explicit Impl(const QString &fullFileName)
-                : fileName(fullFileName), index(fullFileName.toStdString()) {}
+                : fileName(fullFileName), index(fullFileName.toStdString()),
+                  stats(readGraphStats(fullFileName, index)) {}
 
         QString fileName;
         gfaidx::IndexedGraph index;
+        IndexedGraphStats stats;
     };
 
     IndexedGraphSession::IndexedGraphSession(const QString &fullFileName)
@@ -81,6 +121,10 @@ namespace graph {
 
     std::size_t IndexedGraphSession::pathCount() const {
         return impl_->index.paths().size();
+    }
+
+    const IndexedGraphStats &IndexedGraphSession::graphStats() const {
+        return impl_->stats;
     }
 
     bool IndexedGraphSession::hasPathIndex() const {

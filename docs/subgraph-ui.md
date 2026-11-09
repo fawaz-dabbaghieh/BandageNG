@@ -4,7 +4,8 @@ When "Load graph" is pointed at a GFA file that has a [gfaidx](https://github.co
 index next to it (sidecar `.idx`/`.ndx`/... files, same naming convention gfaidx's
 CLI produces), Bandage-NG does not parse the whole file. It opens the index (cheap,
 no full parse) and shows the query window (`IndexedGraphDialog`) with the index's
-summary (nodes, communities, paths/walks) and two kinds of query:
+summary (nodes, edges, paths/walks, total length, communities; see below for
+where these come from) and two kinds of query:
 
 - **Subgraph** (`gfaidx::IndexedGraph::stream_subgraph`): one or more start nodes
   (comma- or space-separated; a trailing `+`/`-` strand suffix is ignored), the
@@ -29,6 +30,15 @@ like any loaded graph, is only drawn when you click "Draw graph": the graph
 details panel and the status bar show its size first, so a result too large to
 lay out can be re-queried instead. If a query fails, the error is shown and the
 query window reopens with the same values.
+
+The query window's summary uses the same complete-graph numbers as the panel below.
+While a query result is loaded, the "Graph information" panel shows two blocks:
+"Complete graph" (the size of the whole indexed graph) and "Loaded subgraph" (the
+query result). The complete graph's node count and path/walk split come from the
+index itself. Edges and total length come from the `<file>.params` summary that
+gfaidx 2.3 and later write next to the index. Older indexes show "unknown" for
+those two, and a `.params` file whose segment count does not match the index is
+ignored. After "Load full graph" the panel shows a single block, as for any other file.
 
 ## Re-querying
 
@@ -55,7 +65,7 @@ plain clone + build includes it - no separate gfaidx checkout needed.
 ## Key files
 
 - `graph/indexedgraphsession.h`/`.cpp` - wraps `gfaidx::IndexedGraph`: summary
-  stats, the list of region targets (`regionTargets()`), and `runQuery()`, which
+  stats (`graphStats()` adds the `.params` counts), the list of region targets (`regionTargets()`), and `runQuery()`, which
   runs a subgraph or region query off the GUI thread and writes the result as GFA
   into an auto-deleted temporary directory.
 - `ui/dialogs/indexedgraphdialog.h`/`.cpp` - the query window (built in C++, no
@@ -63,7 +73,8 @@ plain clone + build includes it - no separate gfaidx checkout needed.
 - `ui/mainwindow.cpp`: `loadGraph()` (dispatch), `openIndexedGraph()`,
   `showIndexQueryDialog()` / `runIndexQuery()` (query flow), `parseGraphFile()`
   (background GFA parsing shared by full loads and query results),
-  `requeryIndexedGraph()` (the Re-query button).
+  `requeryIndexedGraph()` (the Re-query button), `displayGraphDetails()` (the
+  complete-graph block).
 - `command_line/info.cpp` - the CLI `info` subcommand also detects an index and
   prints its summary instead of doing a full load.
 - `tests/gfaidx_spike.cpp` - manual smoke test (`GfaidxSpike` target, not in ctest).
@@ -77,3 +88,5 @@ plain clone + build includes it - no separate gfaidx checkout needed.
 - A region query can't span two records of the same fragmented contig, because
   start/end are checked against the chosen record (gfaidx itself would allow it).
 - Path/walk step queries (`get_path_subgraph`) are not wired up.
+- "Load full graph" on an indexed file loads a graph without paths or walks: the
+  indexed `.gz` holds only H, S and L lines, and its P/W lines live in the `.pdx`.

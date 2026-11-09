@@ -173,6 +173,8 @@ MainWindow::MainWindow(QString fileToLoadOnStartup, bool drawGraphAfterLoad) :
     connect(ui->graphScopeComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(graphScopeChanged()));
     connect(ui->indexQueryButton, &QPushButton::clicked, this, &MainWindow::requeryIndexedGraph);
     ui->indexQueryButton->setEnabled(false);
+    ui->loadedSubgraphHeadingLabel->setContentsMargins(0, 6, 0, 0);
+    setIndexedGraphDetailsVisible(false);
 #ifndef BANDAGE_HAVE_GFAIDX
     ui->indexQueryInfoText->hide();
     ui->indexQueryLabel->hide();
@@ -736,6 +738,26 @@ void MainWindow::displayGraphDetails()
                                  .arg(formatIntForDisplay(g_assemblyGraph->pathCount()))
                                  .arg(formatIntForDisplay(g_assemblyGraph->walkCount())));
     ui->totalLengthLabel->setText(formatIntForDisplay(g_assemblyGraph->m_totalLength));
+
+#ifdef BANDAGE_HAVE_GFAIDX
+    // A graph queried from an index is a subgraph, so the complete graph's size is shown above it.
+    if (m_indexedGraph) {
+        const auto &stats = m_indexedGraph->graphStats();
+        auto format = [](std::optional<std::uint64_t> count) {
+            return count ? formatIntForDisplay((long long)*count) : QString("unknown");
+        };
+        ui->indexedNodeCountLabel->setText(format(stats.nodes));
+        ui->indexedEdgeCountLabel->setText(format(stats.edges));
+        ui->indexedPathAndWalkCountLabel->setText(stats.paths ? format(stats.paths) + " / " + format(stats.walks)
+                                                              : "unknown");
+        ui->indexedTotalLengthLabel->setText(format(stats.totalLength));
+        for (QLabel *label : {ui->indexedEdgeCountLabel, ui->indexedPathAndWalkCountLabel, ui->indexedTotalLengthLabel})
+            label->setToolTip(label->text() == "unknown"
+                              ? "Not recorded in this index. gfaidx 2.3 and later record it in the .params file."
+                              : QString());
+    }
+    setIndexedGraphDetailsVisible(m_indexedGraph != nullptr);
+#endif
 }
 
 void MainWindow::clearGraphDetails()
@@ -744,6 +766,18 @@ void MainWindow::clearGraphDetails()
     ui->edgeCountLabel->setText("0");
     ui->pathAndWalkCountLabel->setText("0 / 0");
     ui->totalLengthLabel->setText("0");
+    setIndexedGraphDetailsVisible(false);
+}
+
+void MainWindow::setIndexedGraphDetailsVisible(bool visible)
+{
+    for (QLabel *label : {ui->indexedGraphHeadingLabel,
+                          ui->indexedNodesLabel, ui->indexedNodeCountLabel,
+                          ui->indexedEdgesLabel, ui->indexedEdgeCountLabel,
+                          ui->indexedPathsLabel, ui->indexedPathAndWalkCountLabel,
+                          ui->indexedLengthLabel, ui->indexedTotalLengthLabel,
+                          ui->loadedSubgraphHeadingLabel})
+        label->setVisible(visible);
 }
 
 void MainWindow::selectionChanged()
