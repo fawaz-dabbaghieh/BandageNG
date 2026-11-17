@@ -36,6 +36,9 @@ class WalkListModel : public QAbstractTableModel {
 Q_OBJECT
 
 public:
+    // Like Qt::DisplayRole, but the complete node list of long walks
+    static constexpr int FullTextRole = Qt::UserRole;
+
     WalkListModel(const AssemblyGraph &g,
                   const std::vector<DeBruijnNode *> &startNodes = {},
                   QObject *parent = nullptr);
@@ -50,7 +53,6 @@ public:
 private:
 
     std::vector<std::pair<std::string, const Walk*>> m_orderedWalks;
-    phmap::parallel_flat_hash_map<const DeBruijnNode*, phmap::flat_hash_set<const Walk*>> m_coverageMap;
     const DeBruijnNode *m_node = nullptr;
     const AssemblyGraph &graph;
 };
@@ -64,6 +66,9 @@ public:
                    const std::vector<DeBruijnNode *> &startNodes = {},
                    QWidget *parent = nullptr);
     ~WalkListDialog();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void refineByNode();

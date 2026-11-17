@@ -21,9 +21,14 @@
 #include "graph/assemblygraph.h"
 #include "graph/path.h"
 
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QKeyEvent>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStringBuilder>
+
+#include <algorithm>
 
 enum Columns : unsigned {
     Sample = 0,
@@ -36,6 +41,10 @@ enum Columns : unsigned {
     WalkNodes = 7,
     TotalColumns = WalkNodes + 1
 };
+
+// The table lists only the first nodes of each walk: laying out the text of walks with thousands of nodes
+// made the dialog take seconds to open and to repaint. Ctrl+C copies the complete list.
+static constexpr size_t kShownNodes = 100;
 
 WalkListDialog::WalkListDialog(const AssemblyGraph &graph,
                                const std::vector<DeBruijnNode *> &startNodes,
@@ -64,6 +73,17 @@ WalkListDialog::WalkListDialog(const AssemblyGraph &graph,
     ui->walksView->horizontalHeader()->setStretchLastSection(true);
 
     connect(ui->nodeEdit, &QLineEdit::editingFinished, this, &WalkListDialog::refineByNode);
+    ui->walksView->installEventFilter(this);
+}
+
+bool WalkListDialog::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == ui->walksView && event->type() == QEvent::KeyPress &&
+        static_cast<QKeyEvent *>(event)->matches(QKeySequence::Copy)) {
+        if (const QModelIndex index = ui->walksView->currentIndex(); index.isValid())
+            QGuiApplication::clipboard()->setText(index.data(WalkListModel::FullTextRole).toString());
+        return true;
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 WalkListDialog::~WalkListDialog() {
@@ -94,11 +114,6 @@ WalkListModel::WalkListModel(const AssemblyGraph &g,
                              const std::vector<DeBruijnNode*> &startNodes,
                              QObject *parent)
   : QAbstractTableModel(parent), graph(g) {
-    // Build a coverage map: which node is covered by which walks (used for filtering)
-    for (const auto &w : graph.m_deBruijnGraphWalks)
-        for (const auto *node : w.walk.nodes())
-            m_coverageMap[node].insert(&w);
-
     refineWalkOrder(startNodes);
 }
 
@@ -131,14 +146,19 @@ void WalkListModel::sort(int column, Qt::SortOrder order) {
                        lSample < rSample : rSample < lSample;
             });
             break;
-        case Columns::Length:
+        case Columns::Length: {
+            // getLength() goes through the whole walk, so each length is computed once, not per comparison
+            phmap::flat_hash_map<const Walk *, unsigned> lengths;
+            for (const auto &entry : m_orderedWalks)
+                lengths.emplace(entry.second, entry.second->walk.getLength());
             std::sort(m_orderedWalks.begin(), m_orderedWalks.end(),
-                      [order](const auto &lhs, const auto &rhs) {
-                          unsigned l = lhs.second->walk.getLength(), r = rhs.second->walk.getLength();
+                      [order, &lengths](const auto &lhs, const auto &rhs) {
+                          unsigned l = lengths.at(lhs.second), r = lengths.at(rhs.second);
                           return order == Qt::SortOrder::AscendingOrder ?
                                  l < r : r < l;
                       });
             break;
+        }
         case Columns::SeqStart:
             std::sort(m_orderedWalks.begin(), m_orderedWalks.end(),
                       [order](const auto &lhs, const auto &rhs) {
@@ -195,7 +215,7 @@ QVariant WalkListModel::data(const QModelIndex &index, int role) const {
     if (index.row() >= m_orderedWalks.size())
         return {};
 
-    if (role == Qt::DisplayRole) {
+    if (role == Qt::DisplayRole || role == FullTextRole) {
         const auto &entry = m_orderedWalks.at(index.row());
 
         switch (index.column()) {
@@ -226,7 +246,8 @@ QVariant WalkListModel::data(const QModelIndex &index, int role) const {
                 return positions;
             }
             case Columns::WalkNodes:
-                return entry.second->walk.getString(true);
+                return entry.second->walk.getString(true, role == Qt::DisplayRole ? kShownNodes
+                                                                                  : std::numeric_limits<size_t>::max());
         }
     }
 
@@ -237,30 +258,15 @@ void WalkListModel::refineWalkOrder(const std::vector<DeBruijnNode*> &nodes) {
     beginResetModel();
 
     m_orderedWalks.clear();
-    m_node = nullptr;
+    m_node = nodes.size() == 1 ? nodes.front() : nullptr;
 
-    // No node: whole graph and all walks
-    if (nodes.empty()) {
-        m_orderedWalks.reserve(graph.m_deBruijnGraphWalks.size());
-        for (auto it = graph.m_deBruijnGraphWalks.begin(); it != graph.m_deBruijnGraphWalks.end(); ++it)
+    // No node: all walks. Otherwise the walks through any of the nodes.
+    const phmap::flat_hash_set<const DeBruijnNode *> wanted(nodes.begin(), nodes.end());
+    for (auto it = graph.m_deBruijnGraphWalks.begin(); it != graph.m_deBruijnGraphWalks.end(); ++it) {
+        const auto &walkNodes = it->walk.nodes();
+        if (wanted.empty() || std::any_of(walkNodes.begin(), walkNodes.end(),
+                                          [&wanted](const DeBruijnNode *node) { return wanted.contains(node); }))
             m_orderedWalks.emplace_back(it.key(), &*it);
-    } else {
-        phmap::flat_hash_set<const Walk *> walks;
-        if (nodes.size() == 1)
-            m_node = nodes.front();
-
-        for (const auto *node: nodes) {
-            auto entry = m_coverageMap.find(node);
-            if (entry == m_coverageMap.end())
-                continue;
-
-            walks.insert(entry->second.begin(), entry->second.end());
-        }
-
-        // We have to iterate over all walks as names are stored as name in the map
-        for (auto it = graph.m_deBruijnGraphWalks.begin(); it != graph.m_deBruijnGraphWalks.end(); ++it)
-            if (walks.contains(&*it))
-                m_orderedWalks.emplace_back(it.key(), &*it);
     }
 
     endResetModel();

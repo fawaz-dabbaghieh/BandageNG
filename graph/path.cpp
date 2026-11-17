@@ -459,9 +459,10 @@ QByteArray Path::getAAFasta(unsigned shift, QString name) const {
 }
 
 
-QString Path::getString(bool spaces) const {
+QString Path::getString(bool spaces, size_t maxNodes) const {
     QString output;
-    for (int i = 0; i < m_nodes.size(); ++i) {
+    const size_t shownNodes = std::min(m_nodes.size(), maxNodes);
+    for (size_t i = 0; i < shownNodes; ++i) {
         if (i == 0 && !m_startLocation.isAtStartOfNode()) {
             output += "(" + QString::number(m_startLocation.getPosition()) + ")";
             if (spaces)
@@ -481,6 +482,8 @@ QString Path::getString(bool spaces) const {
             output += "(" + QString::number(m_endLocation.getPosition()) + ")";
         }
     }
+    if (shownNodes < m_nodes.size())
+        output += QString("... (%1 more nodes)").arg(m_nodes.size() - shownNodes);
     return output;
 }
 

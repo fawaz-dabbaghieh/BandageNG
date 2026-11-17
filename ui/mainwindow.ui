@@ -2153,6 +2153,9 @@ then colour which other nodes in the graph are likely to be contiguous
                <height>16</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;Select: select the nodes that were found and zoom to them.&lt;br&gt;&lt;br&gt;Recolor: also give them all the colour of the first node, so the path stands out.&lt;br&gt;&lt;br&gt;Only drawn nodes can be selected, so draw the graph first.&lt;/html&gt;</string>
+             </property>
             </widget>
            </item>
            <item row="0" column="2" colspan="2">
@@ -2234,12 +2237,34 @@ then colour which other nodes in the graph are likely to be contiguous
                <height>16</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;The name of one path (a P line in the GFA file). Start typing to see matching names, or click &quot;Paths...&quot; to list all paths.&lt;/html&gt;</string>
+             </property>
             </widget>
            </item>
            <item row="1" column="1">
             <widget class="QLabel" name="label">
              <property name="text">
               <string>Position:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="InfoTextWidget" name="pathSelectionPositionInfoText" native="true">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;Optional. Leave it empty to find all nodes of the path. Enter a position, e.g. 1500, to find the node at that base of the path, or a range as start:end, e.g. 1000:2000, to find the nodes that cover it. Positions are in bases, counted from 1 at the first base of the path.&lt;/html&gt;</string>
              </property>
             </widget>
            </item>
@@ -2328,6 +2353,9 @@ then colour which other nodes in the graph are likely to be contiguous
                <height>16</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;Select: select the nodes that were found and zoom to them.&lt;br&gt;&lt;br&gt;Recolor: also give them all the colour of the first node, so the walk stands out.&lt;br&gt;&lt;br&gt;Only drawn nodes can be selected, so draw the graph first.&lt;/html&gt;</string>
+             </property>
             </widget>
            </item>
            <item row="0" column="2" colspan="2">
@@ -2409,12 +2437,34 @@ then colour which other nodes in the graph are likely to be contiguous
                <height>16</height>
               </size>
              </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;The sequence name of one walk: the fourth field of a W line, e.g. chr22. Start typing to see matching names, or click &quot;Walks...&quot; to list all walks.&lt;/html&gt;</string>
+             </property>
             </widget>
            </item>
            <item row="1" column="1">
             <widget class="QLabel" name="label2">
              <property name="text">
               <string>Position:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="InfoTextWidget" name="walkSelectionPositionInfoText" native="true">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;Optional. Leave it empty to find all nodes of the walk. Enter a position, e.g. 1500, to find the node at that base of the walk, or a range as start:end, e.g. 1000:2000, to find the nodes that cover it. Positions are in bases, counted from 1 at the first base of the walk, not from the start coordinate in the W line.&lt;/html&gt;</string>
              </property>
             </widget>
            </item>

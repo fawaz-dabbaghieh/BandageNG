@@ -25,6 +25,7 @@
 #include <QList>
 #include <QString>
 
+#include <limits>
 #include <vector>
 
 class DeBruijnNode;
@@ -70,7 +71,8 @@ public:
     [[nodiscard]] QByteArray getPathSequence() const;
     [[nodiscard]] QByteArray getFasta(QString name = "") const;
     [[nodiscard]] QByteArray getAAFasta(unsigned shift, QString name = "") const;
-    [[nodiscard]] QString getString(bool spaces) const;
+    // At most maxNodes nodes are listed; a longer path ends with "... (N more nodes)".
+    [[nodiscard]] QString getString(bool spaces, size_t maxNodes = std::numeric_limits<size_t>::max()) const;
     int getLength() const;
     QList<Path> extendPathInAllPossibleWays() const;
     bool canNodeFitOnEnd(DeBruijnNode * node, Path * extendedPath) const;

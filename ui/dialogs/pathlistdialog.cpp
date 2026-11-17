@@ -21,9 +21,14 @@
 #include "graph/assemblygraph.h"
 #include "graph/path.h"
 
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QKeyEvent>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStringBuilder>
+
+#include <algorithm>
 
 enum Columns : unsigned {
     Name = 0,
@@ -32,6 +37,10 @@ enum Columns : unsigned {
     PathNodes = 3,
     TotalColumns = PathNodes + 1
 };
+
+// The table lists only the first nodes of each path: laying out the text of paths with thousands of nodes
+// made the dialog take seconds to open and to repaint. Ctrl+C copies the complete list.
+static constexpr size_t kShownNodes = 100;
 
 PathListDialog::PathListDialog(const AssemblyGraph &graph,
                                const std::vector<DeBruijnNode *> &startNodes,
@@ -60,6 +69,17 @@ PathListDialog::PathListDialog(const AssemblyGraph &graph,
     ui->pathsView->horizontalHeader()->setStretchLastSection(true);
 
     connect(ui->nodeEdit, &QLineEdit::editingFinished, this, &PathListDialog::refineByNode);
+    ui->pathsView->installEventFilter(this);
+}
+
+bool PathListDialog::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == ui->pathsView && event->type() == QEvent::KeyPress &&
+        static_cast<QKeyEvent *>(event)->matches(QKeySequence::Copy)) {
+        if (const QModelIndex index = ui->pathsView->currentIndex(); index.isValid())
+            QGuiApplication::clipboard()->setText(index.data(PathListModel::FullTextRole).toString());
+        return true;
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 PathListDialog::~PathListDialog() {
@@ -90,11 +110,6 @@ PathListModel::PathListModel(const AssemblyGraph &g,
                              const std::vector<DeBruijnNode*> &startNodes,
                              QObject *parent)
   : QAbstractTableModel(parent), graph(g) {
-    // Build a coverage map: which node is covered by which paths (used for filtering)
-    for (const auto &p : graph.m_deBruijnGraphPaths)
-        for (const auto *node : p.nodes())
-            m_coverageMap[node].insert(&p);
-
     refinePathOrder(startNodes);
 }
 
@@ -117,14 +132,19 @@ void PathListModel::sort(int column, Qt::SortOrder order) {
                        lhs.first < rhs.first : rhs.first < lhs.first;
             });
             break;
-        case Columns::Length:
+        case Columns::Length: {
+            // getLength() goes through the whole path, so each length is computed once, not per comparison
+            phmap::flat_hash_map<const Path *, unsigned> lengths;
+            for (const auto &entry : m_orderedPaths)
+                lengths.emplace(entry.second, entry.second->getLength());
             std::sort(m_orderedPaths.begin(), m_orderedPaths.end(),
-                      [order](const auto &lhs, const auto &rhs) {
-                          unsigned l = lhs.second->getLength(), r = rhs.second->getLength();
+                      [order, &lengths](const auto &lhs, const auto &rhs) {
+                          unsigned l = lengths.at(lhs.second), r = lengths.at(rhs.second);
                           return order == Qt::SortOrder::AscendingOrder ?
                                  l < r : r < l;
                       });
             break;
+        }
     }
 
     emit dataChanged(QModelIndex(), QModelIndex());
@@ -157,7 +177,7 @@ QVariant PathListModel::data(const QModelIndex &index, int role) const {
     if (index.row() >= m_orderedPaths.size())
         return {};
 
-    if (role == Qt::DisplayRole) {
+    if (role == Qt::DisplayRole || role == FullTextRole) {
         const auto &entry = m_orderedPaths.at(index.row());
 
         switch (index.column()) {
@@ -180,7 +200,8 @@ QVariant PathListModel::data(const QModelIndex &index, int role) const {
                 return positions;
             }
             case Columns::PathNodes:
-                return entry.second->getString(true);
+                return entry.second->getString(true, role == Qt::DisplayRole ? kShownNodes
+                                                                             : std::numeric_limits<size_t>::max());
         }
     }
 
@@ -191,30 +212,15 @@ void PathListModel::refinePathOrder(const std::vector<DeBruijnNode*> &nodes) {
     beginResetModel();
 
     m_orderedPaths.clear();
-    m_node = nullptr;
+    m_node = nodes.size() == 1 ? nodes.front() : nullptr;
 
-    // No node: whole graph and all paths
-    if (nodes.empty()) {
-        m_orderedPaths.reserve(graph.m_deBruijnGraphPaths.size());
-        for (auto it = graph.m_deBruijnGraphPaths.begin(); it != graph.m_deBruijnGraphPaths.end(); ++it)
+    // No node: all paths. Otherwise the paths through any of the nodes.
+    const phmap::flat_hash_set<const DeBruijnNode *> wanted(nodes.begin(), nodes.end());
+    for (auto it = graph.m_deBruijnGraphPaths.begin(); it != graph.m_deBruijnGraphPaths.end(); ++it) {
+        const auto &pathNodes = it->nodes();
+        if (wanted.empty() || std::any_of(pathNodes.begin(), pathNodes.end(),
+                                          [&wanted](const DeBruijnNode *node) { return wanted.contains(node); }))
             m_orderedPaths.emplace_back(it.key(), &*it);
-    } else {
-        phmap::flat_hash_set<const Path *> paths;
-        if (nodes.size() == 1)
-            m_node = nodes.front();
-
-        for (const auto *node: nodes) {
-            auto entry = m_coverageMap.find(node);
-            if (entry == m_coverageMap.end())
-                continue;
-
-            paths.insert(entry->second.begin(), entry->second.end());
-        }
-
-        // We have to iterate over all paths as names are stored as name in the map
-        for (auto it = graph.m_deBruijnGraphPaths.begin(); it != graph.m_deBruijnGraphPaths.end(); ++it)
-            if (paths.contains(&*it))
-                m_orderedPaths.emplace_back(it.key(), &*it);
     }
 
     endResetModel();
